@@ -24,7 +24,7 @@ from vocab import SUBTRAIN_VOCAB, TRAINVAL_VOCAB, TRAIN_VOCAB
 MAX_INPUT_LENGTH = 80 # TODO make this an argument
 
 max_episode_len = 10
-glove_path = 'tasks/R2R/data/train_glove.npy'
+glove_path = 'data/train_glove.npy'
 action_embedding_size = 2048+128
 hidden_size = 512
 dropout_ratio = 0.5
@@ -175,7 +175,7 @@ def make_more_train_env(args, train_vocab_path, train_splits):
     vocab = read_vocab(train_vocab_path)
     tok = Tokenizer(vocab=vocab)
     train_env = R2RBatch(image_features_list, batch_size=args.batch_size,
-                         splits=train_splits, tokenizer=tok)
+                         splits=train_splits, tokenizer=tok, args=args)
     return train_env
 
 
@@ -240,11 +240,11 @@ def make_env_and_models(args, train_vocab_path, train_splits, test_splits):
     vocab = read_vocab(train_vocab_path)
     tok = Tokenizer(vocab=vocab)
     train_env = R2RBatch(image_features_list, batch_size=args.batch_size,
-                         splits=train_splits, tokenizer=tok) if len(train_splits) > 0 else None
+                         splits=train_splits, tokenizer=tok, args=args) if len(train_splits) > 0 else None
     test_envs = {
         split: (R2RBatch(image_features_list, batch_size=args.batch_size,
-                         splits=[split], tokenizer=tok),
-                eval.Evaluation([split]))
+                         splits=[split], tokenizer=tok, args=args),
+                eval.Evaluation([split], args=args))
         for split in test_splits}
 
     agent = make_follower(args, vocab)

@@ -18,7 +18,7 @@ from param import args
 class Evaluation(object):
     ''' Results submission format:  [{'instr_id': string, 'trajectory':[(viewpoint_id, heading_rads, elevation_rads),] } ] '''
 
-    def __init__(self, splits, scans, tok):
+    def __init__(self, splits, scans, tok, fout=None):
         self.error_margin = 3.0
         self.splits = splits
         self.tok = tok
@@ -26,7 +26,7 @@ class Evaluation(object):
         self.instr_ids = []
         self.scans = []
         for split in splits:
-            for item in load_datasets([split]):
+            for item in load_datasets([split], fout=fout):
                 if scans is not None and item['scan'] not in scans:
                     continue
                 language = item['language'].split('-')[0]
@@ -200,9 +200,3 @@ def eval_seq2seq():
 
 if __name__ == '__main__':
     eval_simple_agents()
-
-
-
-
-
-

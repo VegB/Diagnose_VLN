@@ -1,16 +1,12 @@
 import argparse
 import os
-import torch
 
 
 def parse_args():
     parser = argparse.ArgumentParser(description="")
 
     parser.add_argument('--root_dir', type=str, default='../datasets')
-    parser.add_argument(
-        '--dataset', type=str, default='r2r', 
-        choices=['r2r', 'r4r', 'r2r_back', 'r2r_last', 'rxr']
-    )
+    # parser.add_argument('--dataset', type=str, default='r2r', choices=['r2r', 'r4r', 'r2r_back', 'r2r_last', 'rxr'])
     parser.add_argument('--langs', nargs='+', default=None, choices=['en', 'hi', 'te'])
     parser.add_argument('--output_dir', type=str, default='default', help='experiment id')
     parser.add_argument('--seed', type=int, default=0)
@@ -99,28 +95,30 @@ def parse_args():
         type=str, help='batch or total'
     )
 
+    # Diagnose-VLN
+    parser.add_argument('--dataset', default='RxR-en', type=str, choices=['R2R', 'RxR-en'])
+    parser.add_argument('--setting', default='default', type=str)
+    parser.add_argument('--rate', default=1.0, type=float)
+    parser.add_argument('--repeat_time', default=5, type=int)
+    parser.add_argument('--repeat_idx', default=0, type=int)
+    parser.add_argument('--reset_img_feat', default=0, type=int)
+    parser.add_argument('--data_dir', default='../../../data/')
+    parser.add_argument('--img_dir', default='../../../data/img_features', type=str)
+    parser.add_argument('--img_feat_pattern', default='ResNet-152-imagenet_%s_m%.2f_%d.tsv', type=str)
+    parser.add_argument('--img_feat_mode', default='foreground', type=str)
+    parser.add_argument('--val_log_dir', default='../../../log/', type=str)
+
     args, _ = parser.parse_known_args()
-
-    args = postprocess_args(args)
-
     return args
 
 
 def postprocess_args(args):
     ROOTDIR = args.root_dir
-
-    # Setup input paths
-    ft_file_map = {
-        'vitbase': 'pth_vit_base_patch16_224_imagenet.hdf5',
-        'vitbase_r2rfte2e': 'pth_vit_base_patch16_224_imagenet_r2r.e2e.ft.22k.hdf5',
-        'vitbase_clip': 'pth_vit_base_patch32_224_clip.hdf5',
-    }
-    args.img_ft_file = os.path.join(ROOTDIR, 'R2R', 'features', ft_file_map[args.features])
     
     args.connectivity_dir = os.path.join(ROOTDIR, 'R2R', 'connectivity')
     args.scan_data_dir = os.path.join(ROOTDIR, 'Matterport3D', 'v1_unzip_scans')
 
-    if args.dataset == 'rxr':
+    if args.dataset == 'RxR-en':
         args.anno_dir = os.path.join(ROOTDIR, 'RxR', 'annotations')
     else:
         args.anno_dir = os.path.join(ROOTDIR, 'R2R', 'annotations')
@@ -135,9 +133,4 @@ def postprocess_args(args):
     os.makedirs(args.log_dir, exist_ok=True)
     os.makedirs(args.pred_dir, exist_ok=True)
 
-    # remove unnecessary args
-    if args.dataset != 'rxr':
-        del args.langs
-
     return args
-

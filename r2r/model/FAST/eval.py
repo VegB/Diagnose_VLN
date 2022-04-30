@@ -26,18 +26,19 @@ class Evaluation(object):
         [{'instr_id': string,
           'trajectory':[(viewpoint_id, heading_rads, elevation_rads),]}] '''
 
-    def __init__(self, splits):
+    def __init__(self, splits, args=None):
         self.error_margin = 3.0
         self.splits = splits
         self.gt = {}
         self.instr_ids = []
         self.scans = []
         self.instructions = {}
-        for item in load_datasets(splits):
+        for item in load_datasets(args, splits):
             self.gt[item['path_id']] = item
             self.scans.append(item['scan'])
-            self.instr_ids += [
-                '%d_%d' % (item['path_id'], i) for i in range(3)]
+            # self.instr_ids += [
+            #     '%d_%d' % (item['path_id'], i) for i in range(3)]
+            self.instr_ids += ['%s_%d' % (item['path_id'], i) for i in range(len(item['instructions']))]
             for j,instruction in enumerate(item['instructions']):
                 self.instructions['%d_%d' % (item['path_id'], j)] = instruction
         self.scans = set(self.scans)

@@ -48,7 +48,7 @@ def batch_observations_and_actions(path_obs, path_actions, encoded_instructions)
     batch_size = len(path_obs)
     assert batch_size == len(path_actions)
 
-    mask = np.ones((batch_size, max_path_length), np.uint8)
+    mask = np.ones((batch_size, max_path_length), np.bool)#uint8)
     action_embedding_dim = path_obs[0][0]['action_embedding'].shape[-1]
     batched_action_embeddings = [
         np.zeros((batch_size, action_embedding_dim), np.float32)
@@ -179,7 +179,7 @@ class Seq2SeqSpeaker(object):
             log_probs = F.log_softmax(logit, dim=1)
             word_scores = -F.nll_loss(log_probs, w_t, ignore_index=vocab_pad_idx, reduction='none')
             sequence_scores += word_scores.data
-            loss += F.nll_loss(log_probs, target, ignore_index=vocab_pad_idx, reduction='elementwise_mean')
+            loss += F.nll_loss(log_probs, target, ignore_index=vocab_pad_idx, reduction='mean')#'elementwise_mean')
 
             for perm_index, src_index in enumerate(perm_indices):
                 word_idx = w_t[perm_index].item()

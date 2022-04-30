@@ -26,12 +26,12 @@ log_dir = 'snap/%s' % args.name
 if not os.path.exists(log_dir):
     os.makedirs(log_dir)
 
-TRAIN_VOCAB = 'tasks/RxR/data/train_vocab.txt'
-TRAINVAL_VOCAB = 'tasks/RxR/data/trainval_vocab.txt'
-TRAIN_VOCAB_HI = 'tasks/RxR/data/train_vocab_hi.txt'
-TRAINVAL_VOCAB_HI = 'tasks/RxR/data/trainval_vocab_hi.txt'
-TRAIN_VOCAB_TE = 'tasks/RxR/data/train_vocab_te.txt'
-TRAINVAL_VOCAB_TE = 'tasks/RxR/data/trainval_vocab_te.txt'
+TRAIN_VOCAB = '../../data/vocab/train_vocab.txt'
+TRAINVAL_VOCAB = '../../data/vocab/trainval_vocab.txt'
+TRAIN_VOCAB_HI = '../../data/vocab/train_vocab_hi.txt'
+TRAINVAL_VOCAB_HI = '../../data/vocab/trainval_vocab_hi.txt'
+TRAIN_VOCAB_TE = '../../data/vocab/train_vocab_te.txt'
+TRAINVAL_VOCAB_TE = '../../data/vocab/trainval_vocab_te.txt'
 
 feedback_method = args.feedback # teacher or sample
 
@@ -216,7 +216,7 @@ def train(train_env, tok, n_iters, log_every=1000, val_envs={}, aug_env=None):
     listner.save(idx, os.path.join("snap", args.name, "state_dict", "LAST_iter%d" % (idx)))
 
 
-def valid(train_env, tok, val_envs={}):
+def valid(train_env, tok, val_envs={}, fout=None):
     agent = Seq2SeqAgent(train_env, "", tok, args.maxAction)
 
     print("Loaded the listener model at iter %d from %s" % (agent.load(args.load), args.load))
@@ -234,7 +234,7 @@ def valid(train_env, tok, val_envs={}):
             loss_str = "Env name: %s" % env_name
             for metric,val in score_summary.items():
                 loss_str += ', %s: %.4f' % (metric, val)
-            print(loss_str)
+            print(loss_str, file=fout)
 
         if args.submit:
             json.dump(
@@ -244,7 +244,7 @@ def valid(train_env, tok, val_envs={}):
             )
 
 
-def beam_valid(train_env, tok, val_envs={}):
+def beam_valid(train_env, tok, val_envs={}, fout=None):
     listener = Seq2SeqAgent(train_env, "", tok, args.maxAction)
 
     speaker = Speaker(train_env, listener, tok)
@@ -356,7 +356,7 @@ def setup():
         write_vocab(build_vocab_te(splits=['train','val_seen','val_unseen']), TRAINVAL_VOCAB_TE)
 
 
-def train_val():
+def train_val(features, fout):
     ''' Train on the training set, and validate on seen and unseen splits. '''
     # args.fast_train = True
     setup()
@@ -381,11 +381,11 @@ def train_val():
         vocab = list(vocab)
         tok = Tokenizer(vocab=vocab, encoding_length=args.maxInput)
 
-    feat_dict = read_img_features(args.features)
+    feat_dict = read_img_features(features, fout)
 
     featurized_scans = set([key.split("_")[0] for key in list(feat_dict.keys())])
 
-    train_env = R2RBatch(feat_dict, batch_size=args.batchSize, splits=['train'], tokenizer=tok)
+    train_env = R2RBatch(feat_dict, batch_size=args.batchSize, splits=['train'], tokenizer=tok, fout=fout)
     from collections import OrderedDict
 
     val_env_names = ['val_unseen', 'val_seen']
@@ -400,8 +400,8 @@ def train_val():
 
     val_envs = OrderedDict(
         ((split,
-          (R2RBatch(feat_dict, batch_size=args.batchSize, splits=[split], tokenizer=tok),
-           Evaluation([split], featurized_scans, tok))
+          (R2RBatch(feat_dict, batch_size=args.batchSize, splits=[split], tokenizer=tok, fout=fout),
+           Evaluation([split], featurized_scans, tok, fout=fout))
           )
          for split in val_env_names
          )
@@ -411,9 +411,9 @@ def train_val():
         train(train_env, tok, args.iters, val_envs=val_envs)
     elif args.train == 'validlistener':
         if args.beam:
-            beam_valid(train_env, tok, val_envs=val_envs)
+            beam_valid(train_env, tok, val_envs=val_envs, fout=fout)
         else:
-            valid(train_env, tok, val_envs=val_envs)
+            valid(train_env, tok, val_envs=val_envs, fout=fout)
     elif args.train == 'speaker':
         train_speaker(train_env, tok, args.iters, val_envs=val_envs)
     elif args.train == 'validspeaker':
@@ -447,7 +447,7 @@ def valid_speaker(tok, val_envs):
         print("Average Length %0.4f" % utils.average_length(path2inst))
 
 
-def train_val_augment():
+def train_val_augment(features, fout):
     """
     Train the listener with the augmented data
     """
@@ -458,7 +458,7 @@ def train_val_augment():
     tok = Tokenizer(vocab=vocab, encoding_length=args.maxInput)
 
     # Load the env img features
-    feat_dict = read_img_features(args.features)
+    feat_dict = read_img_features(features, fout)
     featurized_scans = set([key.split("_")[0] for key in list(feat_dict.keys())])
 
     # Load the augmentation data
@@ -482,19 +482,62 @@ def train_val_augment():
 
     # Setup the validation data
     val_envs = {split: (R2RBatch(feat_dict, batch_size=args.batchSize, splits=[split],
-                                 tokenizer=tok), Evaluation([split], featurized_scans, tok))
+                                 tokenizer=tok), Evaluation([split], featurized_scans, tok, fout=fout))
                 for split in ['train', 'val_seen', 'val_unseen']}
 
     # Start training
     train(train_env, tok, args.iters, val_envs=val_envs, aug_env=aug_env)
 
 
-if __name__ == "__main__":
-    if args.train in ['speaker', 'rlspeaker', 'validspeaker',
-                      'listener', 'validlistener']:
-        train_val()
-    elif args.train == 'auglistener':
-        train_val_augment()
-    else:
-        assert False
+def _main():
+    model_name = 'CLIP-ViL-VLN'
 
+    if args.setting == 'default':
+        args.log_filepath = os.path.join(args.val_log_dir, f'test.test_{model_name}_{args.features}_{args.setting}.out')
+    elif args.setting == 'mask_env':
+        args.log_filepath = os.path.join(args.val_log_dir, f'test.test_{model_name}_{args.features}_mask_env_{args.img_feat_mode}_{args.rate:.2f}_{args.repeat_idx}.out')
+    else:  # mask_instructions
+        args.log_filepath = os.path.join(args.val_log_dir, f'test.test_{model_name}_{args.features}_{args.setting}_{args.rate:.2f}_{args.repeat_idx}.out')
+
+    # LOAD IMAGE FEATURE
+    if not args.reset_img_feat:
+        IMAGENET_FEATURES = os.path.join(args.img_dir, 'ResNet-152-imagenet.tsv')
+        PLACE365_FEATURES = os.path.join(args.img_dir, 'ResNet-152-places365.tsv')
+        VIT_FEATURES = os.path.join(args.img_dir, 'CLIP-ViT-B-32-views.tsv')
+        CLIP_RES101 = os.path.join(args.img_dir, 'CLIP-ResNet-101-views.tsv')
+        CLIP_RES50 = os.path.join(args.img_dir, 'CLIP-ResNet-50-views.tsv')
+        CLIP_RES50x4 = os.path.join(args.img_dir, 'CLIP-ResNet-50x4-views.tsv')
+        
+        if args.features == 'imagenet':
+            features = IMAGENET_FEATURES
+        elif args.features == 'places365':
+            features = PLACE365_FEATURES
+        elif args.features == 'vit':
+            features = VIT_FEATURES
+        elif args.features == 'clip_res101':
+            features = CLIP_RES101
+        elif args.features == 'clip_res50':
+            features = CLIP_RES50
+        elif args.features == 'clip_res50x4':
+            features = CLIP_RES50x4
+    else:
+        features = os.path.join(args.img_dir, args.img_feat_pattern % (args.img_feat_mode, args.rate, args.repeat_idx))
+    print(f'Load img features from {features}')
+    
+    with open(args.log_filepath, 'w') as fout:
+        if args.train in ['speaker', 'rlspeaker', 'validspeaker',
+                        'listener', 'validlistener']:
+            train_val(features, fout)
+        elif args.train == 'auglistener':
+            train_val_augment(features, fout)
+        else:
+            assert False
+
+
+if __name__ == "__main__":
+    if args.setting == 'default' and not args.reset_img_feat:
+        _main()
+    else:
+        for repeat_idx in range(args.repeat_time):
+            args.repeat_idx = repeat_idx
+            _main()

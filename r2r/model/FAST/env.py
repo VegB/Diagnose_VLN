@@ -7,6 +7,7 @@ module_path = os.path.abspath(os.path.join(file_path))
 sys.path.append(module_path)
 module_path = os.path.abspath(os.path.join(file_path,'..','..','build'))
 sys.path.append(module_path)
+sys.path.append('../R2R-EnvDrop/build/')
 import MatterSim
 import csv
 import numpy as np
@@ -296,6 +297,8 @@ class ImageFeatures(object):
 
     @staticmethod
     def from_args(args):
+        args.image_feature_datasets = [args.feature_dataset]
+
         feats = []
         for image_feature_type in sorted(args.image_feature_type):
             if image_feature_type == "none":
@@ -355,14 +358,13 @@ class MeanPooledImageFeatures(ImageFeatures):
     def __init__(self, image_feature_datasets):
         image_feature_datasets = sorted(image_feature_datasets)
         self.image_feature_datasets = image_feature_datasets
-
-        self.mean_pooled_feature_stores = [paths.mean_pooled_feature_store_paths[dataset]
-                                           for dataset in image_feature_datasets]
+        self.mean_pooled_feature_stores = image_feature_datasets
         self.feature_dim = MeanPooledImageFeatures.MEAN_POOLED_DIM * len(image_feature_datasets)
         print('Loading image features from %s' % ', '.join(self.mean_pooled_feature_stores))
         tsv_fieldnames = ['scanId', 'viewpointId', 'image_w','image_h', 'vfov', 'features']
         self.features = defaultdict(list)
         for mpfs in self.mean_pooled_feature_stores:
+            print(f"Will load the image feature from {mpfs}")
             with open(mpfs, "rt") as tsv_in_file:
                 reader = csv.DictReader(tsv_in_file, delimiter='\t', fieldnames = tsv_fieldnames)
                 for item in reader:
@@ -555,7 +557,7 @@ class BottomUpImageFeatures(ImageFeatures):
         for viewpoint in data:
             top_indices = k_best_indices(viewpoint['cls_prob'], self.number_of_detections, sorted=True)[::-1]
 
-            no_object = np.full(self.number_of_detections, True, dtype=np.uint8) # will become torch Byte tensor
+            no_object = np.full(self.number_of_detections, True, dtype=np.bool)#uint8) # will become torch Byte tensor
             no_object[0:len(top_indices)] = False
 
             cls_prob = np.zeros(self.number_of_detections, dtype=np.float32)
@@ -670,13 +672,13 @@ class EnvBatch():
 class R2RBatch():
     ''' Implements the Room to Room navigation task, using discretized viewpoints and pretrained features '''
 
-    def __init__(self, image_features_list, batch_size=100, seed=10, splits=['train'], tokenizer=None, beam_size=1, instruction_limit=None):
+    def __init__(self, image_features_list, batch_size=100, seed=10, splits=['train'], args=None, tokenizer=None, beam_size=1, instruction_limit=None):
         self.image_features_list = image_features_list
         self.data = []
         self.scans = []
         self.gt = {}
         self.tokenizer = tokenizer
-        for item in load_datasets(splits):
+        for item in load_datasets(args, splits):
             # Split multiple instructions into separate entries
             assert item['path_id'] not in self.gt
             self.gt[item['path_id']] = item

@@ -14,7 +14,7 @@ import torch
 from torch import nn
 from torch.nn import CrossEntropyLoss, MSELoss
 
-from transformers.pytorch_transformers.modeling_bert import BertPreTrainedModel, BertConfig
+from pytorch_transformers.modeling_bert import BertPreTrainedModel, BertConfig
 import pdb
 
 logger = logging.getLogger(__name__)

@@ -29,15 +29,9 @@ if not os.path.exists(log_dir):
 TRAIN_VOCAB = 'tasks/R2R/data/train_vocab.txt'
 TRAINVAL_VOCAB = 'tasks/R2R/data/trainval_vocab.txt'
 
-IMAGENET_FEATURES = 'img_features/ResNet-152-imagenet.tsv'
-PLACE365_FEATURES = 'img_features/ResNet-152-places365.tsv'
-
-if args.features == 'imagenet':
-    features = IMAGENET_FEATURES
-
-if args.fast_train:
-    name, ext = os.path.splitext(features)
-    features = name + "-fast" + ext
+# if args.fast_train:
+#     name, ext = os.path.splitext(features)
+#     features = name + "-fast" + ext
 
 feedback_method = args.feedback # teacher or sample
 
@@ -213,7 +207,7 @@ def train(train_env, tok, n_iters, log_every=100, val_envs={}, aug_env=None):
     listner.save(idx, os.path.join("snap", args.name, "state_dict", "LAST_iter%d" % (idx)))
 
 
-def valid(train_env, tok, val_envs={}):
+def valid(train_env, tok, val_envs={}, fout=None):
     agent = Seq2SeqAgent(train_env, "", tok, args.maxAction)
 
     print("Loaded the listener model at iter %d from %s" % (agent.load(args.load), args.load))
@@ -231,7 +225,7 @@ def valid(train_env, tok, val_envs={}):
             loss_str = "Env name: %s" % env_name
             for metric,val in score_summary.items():
                 loss_str += ', %s: %.4f' % (metric, val)
-            print(loss_str)
+            print(loss_str, file=fout)
 
         if args.submit:
             json.dump(
@@ -345,7 +339,7 @@ def setup():
         write_vocab(build_vocab(splits=['train','val_seen','val_unseen']), TRAINVAL_VOCAB)
 
 
-def train_val():
+def train_val(features, fout):
     ''' Train on the training set, and validate on seen and unseen splits. '''
     # args.fast_train = True
     setup()
@@ -360,15 +354,15 @@ def train_val():
     train_env = R2RBatch(feat_dict, batch_size=args.batchSize, splits=['train'], tokenizer=tok)
     from collections import OrderedDict
 
-    val_env_names = ['val_unseen', 'val_seen']
+    val_env_names = ['val_train_seen', 'val_unseen', 'val_seen']
     if args.submit:
         val_env_names.append('test')
     else:
         pass
         #val_env_names.append('train')
 
-    if not args.beam:
-        val_env_names.append("train")
+    # if not args.beam:
+    #     val_env_names.append("train")
 
     val_envs = OrderedDict(
         ((split,
@@ -385,7 +379,7 @@ def train_val():
         if args.beam:
             beam_valid(train_env, tok, val_envs=val_envs)
         else:
-            valid(train_env, tok, val_envs=val_envs)
+            valid(train_env, tok, val_envs=val_envs, fout=fout)
     elif args.train == 'speaker':
         train_speaker(train_env, tok, args.iters, val_envs=val_envs)
     elif args.train == 'validspeaker':
@@ -419,7 +413,7 @@ def valid_speaker(tok, val_envs):
         print("Average Length %0.4f" % utils.average_length(path2inst))
 
 
-def train_val_augment():
+def train_val_augment(features, fout):
     """
     Train the listener with the augmented data
     """
@@ -461,12 +455,42 @@ def train_val_augment():
     train(train_env, tok, args.iters, val_envs=val_envs, aug_env=aug_env)
 
 
-if __name__ == "__main__":
-    if args.train in ['speaker', 'rlspeaker', 'validspeaker',
-                      'listener', 'validlistener']:
-        train_val()
-    elif args.train == 'auglistener':
-        train_val_augment()
-    else:
-        assert False
+def _main():
+    model_name = 'R2R-EnvDrop'
 
+    if args.setting == 'default':
+        args.log_filepath = os.path.join(args.val_log_dir, f'test.test_{model_name}_{args.features}_{args.setting}.out')
+    elif args.setting == 'mask_env':
+        args.log_filepath = os.path.join(args.val_log_dir, f'test.test_{model_name}_{args.features}_mask_env_{args.img_feat_mode}_{args.rate:.2f}_{args.repeat_idx}.out')
+    else:  # mask_instructions
+        args.log_filepath = os.path.join(args.val_log_dir, f'test.test_{model_name}_{args.features}_{args.setting}_{args.rate:.2f}_{args.repeat_idx}.out')
+
+    # LOAD IMAGE FEATURE
+    if not args.reset_img_feat:
+        IMAGENET_FEATURES = os.path.join(args.img_dir, 'ResNet-152-imagenet.tsv')
+        PLACE365_FEATURES = os.path.join(args.img_dir, 'ResNet-152-places365.tsv')
+        
+        if args.features == 'imagenet':
+            features = IMAGENET_FEATURES
+        elif args.features == 'places365':
+            features = PLACE365_FEATURES
+    else:
+        features = os.path.join(args.img_dir, args.img_feat_pattern % (args.img_feat_mode, args.rate, args.repeat_idx))
+
+    with open(args.log_filepath, 'w') as fout:
+        if args.train in ['speaker', 'rlspeaker', 'validspeaker',
+                        'listener', 'validlistener']:
+            train_val(features, fout)
+        elif args.train == 'auglistener':
+            train_val_augment(features, fout)
+        else:
+            assert False
+
+
+if __name__ == "__main__":
+    if args.setting == 'default' and not args.reset_img_feat:
+        _main()
+    else:
+        for repeat_idx in range(args.repeat_time):
+            args.repeat_idx = repeat_idx
+            _main()

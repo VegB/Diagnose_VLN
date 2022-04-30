@@ -14,6 +14,7 @@ import subprocess
 import itertools
 import base64
 import heapq
+import random
 from nltk.corpus import wordnet as wn
 import torch
 
@@ -41,7 +42,8 @@ def load_nav_graphs(scans):
 
     graphs = {}
     file_path = os.path.dirname(__file__)
-    connect_folder = os.path.abspath(os.path.join(file_path,'..','..','connectivity'))
+    # connect_folder = os.path.abspath(os.path.join(file_path,'..','..','connectivity'))
+    connect_folder = os.path.abspath(os.path.join(file_path,'..','R2R-EnvDrop', 'connectivity'))
     for scan in scans:
         with open('%s/%s_connectivity.json' % (connect_folder,scan)) as f:
             G = nx.Graph()
@@ -60,13 +62,50 @@ def load_nav_graphs(scans):
     return graphs
 
 
-def load_datasets(splits):
+def get_label_for_setting(setting):
+    """
+    Label is the abbrev of the setting.
+    'replace_object' -> 'ro'
+    """
+    return ''.join(w[0] for w in setting.split('_'))
+
+
+def load_datasets(args, splits):
     data = []
-    file_path = os.path.dirname(__file__)
+
+    dataset = args.dataset
+    setting = args.setting
+    rate = args.rate
+    repeat_idx = args.repeat_idx
+
     for split in splits:
-        _path = os.path.abspath(os.path.join(file_path,'data','R2R_%s.json' % split))
-        with open(_path) as f:
-            data += json.load(f)
+        # It only needs some part of the dataset?
+        components = split.split("@")
+        number = -1
+        if len(components) > 1:
+            split, number = components[0], int(components[1])
+
+        # Load Json
+        if setting in ['default', 'mask_env', 'numeric_default']:
+            instr_setting = setting if setting != 'mask_env' else 'default'
+            filename = os.path.join(args.data_dir, instr_setting, f'{args.dataset}_{split}.json')
+        else:
+            label = get_label_for_setting(setting)
+            filename = os.path.join(args.data_dir, setting, f'{label}{rate:.2f}_{repeat_idx}', f'{dataset}_{split}.json')
+
+        with open(filename) as f:
+            new_data = json.load(f)
+        print('Load data from %s' % filename)
+        
+        # Partition
+        if number > 0:
+            random.seed(0)              # Make the data deterministic, additive
+            random.shuffle(new_data)
+            new_data = new_data[:number]
+
+        # Join
+        data += new_data
+
     return data
 
 def decode_base64(string):
@@ -264,7 +303,6 @@ def run(arg_parser, entry_function):
     arg_parser.add_argument("--pdb", action='store_true')
     arg_parser.add_argument("--ipdb", action='store_true')
     arg_parser.add_argument("--no_cuda", action='store_true')
-    arg_parser.add_argument("--experiment_name", type=str, default='debug')
     arg_parser.add_argument("--batch_size", type=int, default=64)
     arg_parser.add_argument("--save_args", action='store_false')
 
@@ -273,9 +311,9 @@ def run(arg_parser, entry_function):
     print(json.dumps(vars(args), indent=2))
 
     args = DotDict(vars(args))
-    args.RESULT_DIR = os.path.join('tasks/R2R/experiments/',args.experiment_name,'results')
-    args.SNAPSHOT_DIR = os.path.join('tasks/R2R/experiments/',args.experiment_name,'snapshots')
-    args.PLOT_DIR = os.path.join('tasks/R2R/experiments/',args.experiment_name,'plots')
+    args.RESULT_DIR = os.path.join(args.snap_dir, args.experiment_name,'results')
+    args.SNAPSHOT_DIR = os.path.join(args.snap_dir, args.experiment_name,'snapshots')
+    args.PLOT_DIR = os.path.join(args.snap_dir, args.experiment_name,'plots')
     make_dirs([args.RESULT_DIR, args.SNAPSHOT_DIR, args.PLOT_DIR])
 
     import torch.cuda
@@ -300,19 +338,28 @@ def run(arg_parser, entry_function):
             log(f)
 
     # Make the folders
-    args.RESULT_DIR = os.path.join('tasks/R2R/experiments/',args.experiment_name,'results')
-    args.SNAPSHOT_DIR = os.path.join('tasks/R2R/experiments/',args.experiment_name,'snapshots')
-    args.PLOT_DIR = os.path.join('tasks/R2R/experiments/',args.experiment_name,'plots')
+    args.RESULT_DIR = os.path.join(args.snap_dir, args.experiment_name,'results')
+    args.SNAPSHOT_DIR = os.path.join(args.snap_dir, args.experiment_name,'snapshots')
+    args.PLOT_DIR = os.path.join(args.snap_dir, args.experiment_name,'plots')
     make_dirs([args.RESULT_DIR, args.SNAPSHOT_DIR, args.PLOT_DIR])
 
-    if args.ipdb:
-        import ipdb
-        ipdb.runcall(entry_function, args)
-    elif args.pdb:
-        import pdb
-        pdb.runcall(entry_function, args)
+    def _call_entry_function(entry_function, args):
+        if args.ipdb:
+            import ipdb
+            ipdb.runcall(entry_function, args)
+        elif args.pdb:
+            import pdb
+            pdb.runcall(entry_function, args)
+        else:
+            entry_function(args)
+
+    if args.setting == 'default' and not args.reset_img_feat:
+        _call_entry_function(entry_function, args)
     else:
-        entry_function(args)
+        for repeat_idx in range(args.repeat_time):
+            args.repeat_idx = repeat_idx
+            _call_entry_function(entry_function, args)
+
 
 color2num = dict(
     gray=30,
@@ -398,3 +445,11 @@ class NumpyEncoder(json.JSONEncoder):
         elif isinstance(obj, torch.Tensor):
             return obj.tolist()
         return json.JSONEncoder.default(self, obj)
+
+
+def check_dir(dir):
+    if os.path.exists(dir):
+        print(f'{dir} exists!')
+    else:
+        os.mkdir(dir)
+        print(f'{dir} created!')

@@ -58,6 +58,19 @@ class Param:
         # A2C
         self.parser.add_argument("--gamma", default=0.9, type=float)
         self.parser.add_argument("--normalize", dest="normalize_loss", default="total", type=str, help='batch or total')
+        
+        # Diagnose-VLN
+        self.parser.add_argument('--dataset', default='R2R', type=str)
+        self.parser.add_argument('--setting', default='default', type=str)
+        self.parser.add_argument('--rate', default=1.0, type=float)
+        self.parser.add_argument('--repeat_time', default=5, type=int)
+        self.parser.add_argument('--repeat_idx', default=0, type=int)
+        self.parser.add_argument('--reset_img_feat', default=0, type=int)
+        self.parser.add_argument('--data_dir', default='../../data/')
+        self.parser.add_argument('--img_dir', default='../../data/img_features', type=str)
+        self.parser.add_argument('--img_feat_pattern', default='ResNet-152-imagenet_%s_m%.2f_%d.tsv', type=str)
+        self.parser.add_argument('--img_feat_mode', default='foreground', type=str)
+        self.parser.add_argument('--val_log_dir', default='../../log/', type=str)
 
         self.args = self.parser.parse_args()
 
@@ -80,9 +93,7 @@ param = Param()
 args = param.args
 
 args.description = args.name
-args.IMAGENET_FEATURES = 'img_features/ResNet-152-imagenet.tsv'
 args.log_dir = 'snap/%s' % args.name
 
-if not os.path.exists(args.log_dir):
-    os.makedirs(args.log_dir)
-DEBUG_FILE = open(os.path.join('snap', args.name, "debug.log"), 'w')
+if not os.path.exists(args.val_log_dir):
+    os.makedirs(args.val_log_dir)

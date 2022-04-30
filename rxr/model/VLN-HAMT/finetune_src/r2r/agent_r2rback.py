@@ -15,8 +15,8 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 
 from utils.misc import length2mask
 
-from .eval_utils import cal_dtw
-from .agent_cmt import Seq2SeqCMTAgent
+from eval_utils import cal_dtw
+from agent_cmt import Seq2SeqCMTAgent
 
 
 class Seq2SeqBackAgent(Seq2SeqCMTAgent):

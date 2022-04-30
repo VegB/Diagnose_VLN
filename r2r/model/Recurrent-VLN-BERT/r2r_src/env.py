@@ -1,8 +1,7 @@
 ''' Batched Room-to-Room navigation environment '''
 
 import sys
-sys.path.append('buildpy36')
-sys.path.append('Matterport_Simulator/build/')
+sys.path.append('../R2R-EnvDrop/build/')
 import MatterSim
 import csv
 import numpy as np
@@ -91,7 +90,7 @@ class EnvBatch():
 class R2RBatch():
     ''' Implements the Room to Room navigation task, using discretized viewpoints and pretrained features '''
 
-    def __init__(self, feature_store, batch_size=100, seed=10, splits=['train'], tokenizer=None,
+    def __init__(self, feature_store, batch_size=100, seed=10, splits=['train'], args=None, tokenizer=None,
                  name=None):
         self.env = EnvBatch(feature_store=feature_store, batch_size=batch_size)
         if feature_store:
@@ -103,7 +102,7 @@ class R2RBatch():
             self.tok = tokenizer
         scans = []
         for split in splits:
-            for i_item, item in enumerate(load_datasets([split])):
+            for i_item, item in enumerate(load_datasets(args, [split])):
                 if args.test_only and i_item == 64:
                     break
                 if "/" in split:

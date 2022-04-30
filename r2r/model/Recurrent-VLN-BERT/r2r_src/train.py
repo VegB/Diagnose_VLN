@@ -24,14 +24,6 @@ log_dir = 'snap/%s' % args.name
 if not os.path.exists(log_dir):
     os.makedirs(log_dir)
 
-IMAGENET_FEATURES = 'img_features/ResNet-152-imagenet.tsv'
-PLACE365_FEATURES = 'img_features/ResNet-152-places365.tsv'
-
-if args.features == 'imagenet':
-    features = IMAGENET_FEATURES
-elif args.features == 'places365':
-    features = PLACE365_FEATURES
-
 feedback_method = args.feedback  # teacher or sample
 
 print(args); print('')
@@ -82,7 +74,7 @@ def train(train_env, tok, n_iters, log_every=2000, val_envs={}, aug_env=None):
                 args.ml_weight = 0.2
                 listner.train(1, feedback=feedback_method)
 
-                print_progress(jdx, jdx_length, prefix='Progress:', suffix='Complete', bar_length=50)
+                # print_progress(jdx, jdx_length, prefix='Progress:', suffix='Complete', bar_length=50)
 
         # Log the training stats to tensorboard
         total = max(sum(listner.logs['total']), 1)
@@ -148,7 +140,7 @@ def train(train_env, tok, n_iters, log_every=2000, val_envs={}, aug_env=None):
     listner.save(idx, os.path.join("snap", args.name, "state_dict", "LAST_iter%d" % (idx)))
 
 
-def valid(train_env, tok, val_envs={}):
+def valid(train_env, tok, fout, val_envs={}):
     agent = Seq2SeqAgent(train_env, "", tok, args.maxAction)
 
     print("Loaded the listener model at iter %d from %s" % (agent.load(args.load), args.load))
@@ -166,7 +158,7 @@ def valid(train_env, tok, val_envs={}):
             loss_str = "Env name: %s" % env_name
             for metric,val in score_summary.items():
                 loss_str += ', %s: %.4f' % (metric, val)
-            print(loss_str)
+            print(loss_str, file=fout)
 
         if args.submit:
             json.dump(
@@ -181,7 +173,7 @@ def setup():
     random.seed(0)
     np.random.seed(0)
 
-def train_val(test_only=False):
+def train_val(features, fout, test_only=False):
     ''' Train on the training set, and validate on seen and unseen splits. '''
     setup()
     tok = get_tokenizer(args)
@@ -193,9 +185,9 @@ def train_val(test_only=False):
         val_env_names = ['val_train_seen']
     else:
         featurized_scans = set([key.split("_")[0] for key in list(feat_dict.keys())])
-        val_env_names = ['val_train_seen', 'val_seen', 'val_unseen']
+        val_env_names = ['val_seen', 'val_unseen']  # 'val_train_seen', 
 
-    train_env = R2RBatch(feat_dict, batch_size=args.batchSize, splits=['train'], tokenizer=tok)
+    train_env = R2RBatch(feat_dict, batch_size=args.batchSize, splits=['train'], tokenizer=tok, args=args)
     from collections import OrderedDict
 
     if args.submit:
@@ -205,8 +197,8 @@ def train_val(test_only=False):
 
     val_envs = OrderedDict(
         ((split,
-          (R2RBatch(feat_dict, batch_size=args.batchSize, splits=[split], tokenizer=tok),
-           Evaluation([split], featurized_scans, tok))
+          (R2RBatch(feat_dict, batch_size=args.batchSize, splits=[split], tokenizer=tok, args=args),
+           Evaluation([split], featurized_scans, tok, args=args))
           )
          for split in val_env_names
          )
@@ -215,11 +207,11 @@ def train_val(test_only=False):
     if args.train == 'listener':
         train(train_env, tok, args.iters, val_envs=val_envs)
     elif args.train == 'validlistener':
-        valid(train_env, tok, val_envs=val_envs)
+        valid(train_env, tok, fout=fout, val_envs=val_envs)
     else:
         assert False
 
-def train_val_augment(test_only=False):
+def train_val_augment(features, test_only=False):
     """
     Train the listener with the augmented data
     """
@@ -241,22 +233,53 @@ def train_val_augment(test_only=False):
     # Load the augmentation data
     aug_path = args.aug
     # Create the training environment
-    train_env = R2RBatch(feat_dict, batch_size=args.batchSize, splits=['train'], tokenizer=tok_bert)
-    aug_env   = R2RBatch(feat_dict, batch_size=args.batchSize, splits=[aug_path], tokenizer=tok_bert, name='aug')
+    train_env = R2RBatch(feat_dict, batch_size=args.batchSize, splits=['train'], tokenizer=tok_bert, args=args)
+    aug_env   = R2RBatch(feat_dict, batch_size=args.batchSize, splits=[aug_path], tokenizer=tok_bert, name='aug', args=args)
 
     # Setup the validation data
     val_envs = {split: (R2RBatch(feat_dict, batch_size=args.batchSize, splits=[split], tokenizer=tok_bert),
-                Evaluation([split], featurized_scans, tok_bert))
+                Evaluation([split], featurized_scans, tok_bert, args=args))
                 for split in val_env_names}
 
     # Start training
     train(train_env, tok_bert, args.iters, val_envs=val_envs, aug_env=aug_env)
 
 
-if __name__ == "__main__":
-    if args.train in ['listener', 'validlistener']:
-        train_val(test_only=args.test_only)
-    elif args.train == 'auglistener':
-        train_val_augment(test_only=args.test_only)
+def _main():
+    model_name = 'Recurrent-VLN-BERT'
+
+    if args.setting == 'default':
+        args.log_filepath = os.path.join(args.val_log_dir, f'test.test_{model_name}_{args.features}_{args.setting}.out')
+    elif args.setting == 'mask_env':
+        args.log_filepath = os.path.join(args.val_log_dir, f'test.test_{model_name}_{args.features}_mask_env_{args.img_feat_mode}_{args.rate:.2f}_{args.repeat_idx}.out')
+    else:  # mask_instructions
+        args.log_filepath = os.path.join(args.val_log_dir, f'test.test_{model_name}_{args.features}_{args.setting}_{args.rate:.2f}_{args.repeat_idx}.out')
+
+    # LOAD IMAGE FEATURE
+    if not args.reset_img_feat:
+        IMAGENET_FEATURES = os.path.join(args.img_dir, 'ResNet-152-imagenet.tsv')
+        PLACE365_FEATURES = os.path.join(args.img_dir, 'ResNet-152-places365.tsv')
+        
+        if args.features == 'imagenet':
+            features = IMAGENET_FEATURES
+        elif args.features == 'places365':
+            features = PLACE365_FEATURES
     else:
-        assert False
+        features = os.path.join(args.img_dir, args.img_feat_pattern % (args.img_feat_mode, args.rate, args.repeat_idx))
+
+    with open(args.log_filepath, 'w') as fout:
+        if args.train in ['listener', 'validlistener']:
+            train_val(features, fout, test_only=args.test_only)
+        elif args.train == 'auglistener':
+            train_val_augment(features, test_only=args.test_only)
+        else:
+            assert False
+
+
+if __name__ == "__main__":
+    if args.setting == 'default' and not args.reset_img_feat:
+        _main()
+    else:
+        for repeat_idx in range(args.repeat_time):
+            args.repeat_idx = repeat_idx
+            _main()

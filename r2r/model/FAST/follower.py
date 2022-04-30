@@ -111,7 +111,7 @@ def batch_instructions_from_encoded(encoded_instructions, max_length, reverse=Fa
             mask[i][inst_mask[idx]] = 1
 
     ret_tp = try_cuda(Variable(seq_tensor, requires_grad=False).long()), \
-             try_cuda(mask.byte()), \
+             try_cuda(mask.bool()), \
              seq_lengths
     if sort:
         ret_tp = ret_tp + (list(perm_idx),)
@@ -194,6 +194,8 @@ class BaseAgent(object):
                         looped = True
                     else:
                         self.results[result['instr_id']] = result
+#                     looped=True
+#                     break
 
                 if looped:
                     break
@@ -799,7 +801,10 @@ class Seq2SeqAgent(BaseAgent):
             _logit[is_valid == 0] = -float('inf')
 
             # Expand nodes
-            ac_lens = np.argmax(is_valid == 0, axis=1).detach()
+            a = is_valid == 0
+            a = a.cpu()
+#             ac_lens = np.argmax(is_valid == 0, axis=1).detach()
+            ac_lens = np.argmax(a, axis=1).detach()
             ac_lens[ac_lens == 0] = is_valid.shape[1]
 
             h_t_data, c_t_data = h_t.detach(),c_t.detach()

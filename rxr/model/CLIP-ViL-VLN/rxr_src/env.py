@@ -94,7 +94,7 @@ class R2RBatch():
     ''' Implements the Room to Room navigation task, using discretized viewpoints and pretrained features '''
 
     def __init__(self, feature_store, batch_size=100, seed=10, splits=['train'], tokenizer=None,
-                 name=None):
+                 name=None, fout=None):
         self.env = EnvBatch(feature_store=feature_store, batch_size=batch_size)
         if feature_store:
             self.feature_size = self.env.feature_size
@@ -103,7 +103,7 @@ class R2RBatch():
             self.tok = tokenizer
         scans = []
         for split in splits:
-            for item in load_datasets([split]):
+            for item in load_datasets([split], fout=fout):
                 # Split multiple instructions into separate entries
                 if item['scan'] not in self.env.featurized_scans:   # For fast training
                     continue
@@ -116,10 +116,10 @@ class R2RBatch():
                 else:
                     continue
                 new_item['instr_id'] = item['instruction_id']
-                new_item['instructions'] = item['instruction']
+                new_item['instructions'] = item['instructions'][0]
                 if tokenizer:
                     if new_item['language'] == 'en':
-                        instr = item['instruction']
+                        instr = item['instructions'][0]
                         new_item['instr_encoding'] = tokenizer.encode_sentence(instr, new_item['language'])
                     else:
                         assert len(item['parse_tree_origin']) == 1
@@ -345,5 +345,3 @@ class R2RBatch():
         stats['length'] = length / len(self.data)
         stats['path'] = path / len(self.data)
         return stats
-
-

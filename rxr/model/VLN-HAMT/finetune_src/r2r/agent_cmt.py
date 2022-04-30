@@ -19,9 +19,9 @@ from utils.logger import print_progress
 
 from models.model_HAMT import VLNBertCMT, Critic
 
-from .eval_utils import cal_dtw
+from eval_utils import cal_dtw
 
-from .agent_base import BaseAgent
+from agent_base import BaseAgent
 
 
 class Seq2SeqCMTAgent(BaseAgent):

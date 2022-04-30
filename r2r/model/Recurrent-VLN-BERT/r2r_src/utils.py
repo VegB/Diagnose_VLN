@@ -3,7 +3,7 @@
 import os
 import sys
 import re
-sys.path.append('Matterport_Simulator/build/')
+sys.path.append('../R2R-EnvDrop/build/')
 import MatterSim
 import string
 import json
@@ -48,7 +48,15 @@ def load_nav_graphs(scans):
     return graphs
 
 
-def load_datasets(splits):
+def get_label_for_setting(setting):
+    """
+    Label is the abbrev of the setting.
+    'replace_object' -> 'ro'
+    """
+    return ''.join(w[0] for w in setting.split('_'))
+
+
+def load_datasets(args, splits):
     """
 
     :param splits: A list of split.
@@ -58,6 +66,12 @@ def load_datasets(splits):
     import random
     data = []
     old_state = random.getstate()
+    
+    dataset = args.dataset
+    setting = args.setting
+    rate = args.rate
+    repeat_idx = args.repeat_idx
+        
     for split in splits:
         # It only needs some part of the dataset?
         components = split.split("@")
@@ -66,16 +80,17 @@ def load_datasets(splits):
             split, number = components[0], int(components[1])
 
         # Load Json
-        # if split in ['train', 'val_seen', 'val_unseen', 'test',
-        #              'val_unseen_half1', 'val_unseen_half2', 'val_seen_half1', 'val_seen_half2']:       # Add two halves for sanity check
-        if "/" not in split:
-            with open('data/R2R_%s.json' % split) as f:
-                new_data = json.load(f)
+        if setting in ['default', 'mask_env', 'numeric_default']:
+            instr_setting = setting if setting != 'mask_env' else 'default'
+            filename = os.path.join(args.data_dir, instr_setting, f'{args.dataset}_{split}.json')
         else:
-            print('\nLoading prevalent data for pretraining...')
-            with open(split) as f:
-                new_data = json.load(f)
+            label = get_label_for_setting(setting)
+            filename = os.path.join(args.data_dir, setting, f'{label}{rate:.2f}_{repeat_idx}', f'{dataset}_{split}.json')
 
+        with open(filename) as f:
+            new_data = json.load(f)
+        print('Load data from %s' % filename)
+        
         # Partition
         if number > 0:
             random.seed(0)              # Make the data deterministic, additive
@@ -253,7 +268,7 @@ def read_img_features(feature_store, test_only=False):
     import base64
     from tqdm import tqdm
 
-    print("Start loading the image feature ... (~50 seconds)")
+    print("Start loading the image feature from %s \n... (~50 seconds)" % feature_store)
     start = time.time()
 
     if "detectfeat" in args.features:
@@ -277,6 +292,7 @@ def read_img_features(feature_store, test_only=False):
         features = None
 
     print("Finish Loading the image feature from %s in %0.4f seconds" % (feature_store, time.time() - start))
+    print('Completed %d viewpoints' % len(features))
     return features
 
 def read_candidates(candidates_store):

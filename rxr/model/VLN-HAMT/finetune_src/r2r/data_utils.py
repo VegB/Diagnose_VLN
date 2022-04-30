@@ -5,21 +5,35 @@ import h5py
 import networkx as nx
 import math
 import numpy as np
+import csv
+import base64
+import time
+from utils.logger import write_to_record_file
+
 
 class ImageFeaturesDB(object):
-    def __init__(self, img_ft_file, image_feat_size):
+    def __init__(self, img_ft_file, image_feat_size, record_file):
         self.image_feat_size = image_feat_size
         self.img_ft_file = img_ft_file
         self._feature_store = {}
 
+        print("Start loading the image feature")
+        start = time.time()
+        views = 36
+        tsv_fieldnames = ['scanId', 'viewpointId', 'image_w', 'image_h', 'vfov', 'features']
+        features = {}
+        with open(self.img_ft_file, "r") as tsv_in_file:     # Open the tsv file.
+            reader = csv.DictReader(tsv_in_file, delimiter='\t', fieldnames=tsv_fieldnames)
+            for item in reader:
+                long_id = item['scanId'] + "_" + item['viewpointId']
+                features[long_id] = np.frombuffer(base64.decodestring(item['features'].encode('ascii')),
+                                                    dtype=np.float32).reshape((views, -1))   # Feature of long_id is (36, 512)
+        self._feature_store = features
+        write_to_record_file("Finish Loading the image feature from %s in %0.4f seconds" % (img_ft_file, time.time() - start), record_file)
+
     def get_image_feature(self, scan, viewpoint):
         key = '%s_%s' % (scan, viewpoint)
-        if key in self._feature_store:
-            ft = self._feature_store[key]
-        else:
-            with h5py.File(self.img_ft_file, 'r') as f:
-                ft = f[key][...][:, :self.image_feat_size].astype(np.float32)
-                self._feature_store[key] = ft
+        ft = self._feature_store[key]
         return ft
 
 
@@ -53,33 +67,72 @@ def load_instr_datasets(anno_dir, dataset, splits):
         data += new_data
     return data
 
-def construct_instrs(anno_dir, dataset, splits, tokenizer=None, max_instr_len=512):
+def construct_instrs(anno_dir, dataset, splits, tokenizer=None, max_instr_len=512, args=None):
     data = []
-    for i, item in enumerate(load_instr_datasets(anno_dir, dataset, splits)):
-        if dataset == 'rxr':
-            # rxr annotations are already split
-            new_item = dict(item)
-            if 'path_id' in item:
-                new_item['instr_id'] = '%d_%d'%(item['path_id'], item['instruction_id'])
-            else: # test
-                new_item['path_id'] = new_item['instr_id'] = str(item['instruction_id'])
-            new_item['instr_encoding'] = item['instr_encoding'][:max_instr_len]
-            data.append(new_item)
-        else:
-            # Split multiple instructions into separate entries
-            for j, instr in enumerate(item['instructions']):
-                new_item = dict(item)
-                new_item['instr_id'] = '%s_%d' % (item['path_id'], j)
-                new_item['instruction'] = instr
-                new_item['instr_encoding'] = item['instr_encodings'][j][:max_instr_len]
-                del new_item['instructions']
-                del new_item['instr_encodings']
+    for i, item in enumerate(load_datasets(splits, args)): 
+        new_item = dict(item)
+        new_item['instr_id'] = item['instruction_id']
+        new_item['instruction'] = item['instructions'][0]
+        instr = new_item['instruction']
+        instr_tokens = ['[CLS]'] + tokenizer.tokenize(instr)[:max_instr_len-2] + ['[SEP]']
+        new_item['instr_encoding'] = tokenizer.convert_tokens_to_ids(instr_tokens)
+        data.append(new_item)
+    return data
 
-                # ''' BERT tokenizer '''
-                # instr_tokens = ['[CLS]'] + tokenizer.tokenize(instr)[:max_instr_len-2] + ['[SEP]']
-                # new_item['instr_encoding'] = tokenizer.convert_tokens_to_ids(instr_tokens)
-                          
-                data.append(new_item)
+
+def get_label_for_setting(setting):
+    """
+    Label is the abbrev of the setting.
+    'replace_object' -> 'ro'
+    """
+    return ''.join(w[0] for w in setting.split('_'))
+
+
+def load_datasets(splits, args):
+    """
+
+    :param splits: A list of split.
+        if the split is "something@5000", it will use a random 5000 data from the data
+    :return:
+    """
+    import random
+    data = []
+    old_state = random.getstate()
+
+    dataset = args.dataset
+    setting = args.setting
+    rate = args.rate
+    repeat_idx = args.repeat_idx
+
+    record_file = args.log_filepath 
+    
+    for split in splits:
+        # It only needs some part of the dataset?
+        components = split.split("@")
+        number = -1
+        if len(components) > 1:
+            split, number = components[0], int(components[1])
+
+        if setting in ['default', 'mask_env', 'numeric_default']:
+            instr_setting = setting if setting != 'mask_env' else 'default'
+            filename = os.path.join(args.data_dir, instr_setting, f'{args.dataset}_{split}.json')
+        else:
+            label = get_label_for_setting(setting)
+            filename = os.path.join(args.data_dir, setting, f'{label}{rate:.2f}_{repeat_idx}', f'{dataset}_{split}.json')
+
+        with open(filename) as f:
+            new_data = json.load(f)
+        write_to_record_file('Load data from %s' % filename, record_file)
+
+        # Partition
+        if number > 0:
+            random.seed(0)              # Make the data deterministic, additive
+            random.shuffle(new_data)
+            new_data = new_data[:number]
+
+        # Join
+        data += new_data
+    random.setstate(old_state)      # Recover the state of the random generator
     return data
 
 

@@ -17,7 +17,7 @@ from agent import BaseAgent
 class Evaluation(object):
     ''' Results submission format:  [{'instr_id': string, 'trajectory':[(viewpoint_id, heading_rads, elevation_rads),] } ] '''
 
-    def __init__(self, splits, scans, tok):
+    def __init__(self, splits, scans, tok, args=None):
         self.error_margin = 3.0
         self.splits = splits
         self.tok = tok
@@ -25,7 +25,7 @@ class Evaluation(object):
         self.instr_ids = []
         self.scans = []
         for split in splits:
-            for item in load_datasets([split]):
+            for item in load_datasets(args, [split]):
                 if scans is not None and item['scan'] not in scans:
                     continue
                 self.gt[str(item['path_id'])] = item

@@ -1,9 +1,10 @@
 # Recurrent VLN-BERT, 2020, by Yicong.Hong@anu.edu.au
 
-from transformers.pytorch_transformers import (BertConfig, BertTokenizer)
+from pytorch_transformers import (BertConfig, BertTokenizer)
+
 
 def get_tokenizer(args):
-    if args.vlnbert == 'oscar':
+    if args.vlnbert in ['oscar', 'uninit_oscar']:
         tokenizer_class = BertTokenizer
         model_name_or_path = 'Oscar/pretrained_models/base-no-labels/ep_67_588997'
         tokenizer = tokenizer_class.from_pretrained(model_name_or_path, do_lower_case=True)
@@ -16,6 +17,7 @@ def get_vlnbert_models(args, config=None):
     config_class = BertConfig
 
     if args.vlnbert == 'oscar':
+        print('VLNBERT = pre-trained OSCAR')
         from vlnbert.vlnbert_OSCAR import VLNBert
         model_class = VLNBert
         model_name_or_path = 'Oscar/pretrained_models/base-no-labels/ep_67_588997'
@@ -30,7 +32,24 @@ def get_vlnbert_models(args, config=None):
         vis_config.num_hidden_layers = 12
         visual_model = model_class.from_pretrained(model_name_or_path, from_tf=False, config=vis_config)
 
+    elif args.vlnbert == 'uninit_oscar':
+        print('VLNBERT = uinitialized OSCAR')
+        from vlnbert.vlnbert_OSCAR import VLNBert
+        model_class = VLNBert
+        model_name_or_path = 'Oscar/pretrained_models/base-no-labels/ep_67_588997'
+        vis_config = config_class.from_pretrained(model_name_or_path, num_labels=2, finetuning_task='vln-r2r')
+
+        vis_config.model_type = 'visual'
+        vis_config.finetuning_task = 'vln-r2r'
+        vis_config.hidden_dropout_prob = 0.3
+        vis_config.hidden_size = 768
+        vis_config.img_feature_dim = 2176
+        vis_config.num_attention_heads = 12
+        vis_config.num_hidden_layers = 12
+        visual_model = model_class(config=vis_config)  # Do not load pretrained weights
+
     elif args.vlnbert == 'prevalent':
+        print('VLNBERT = pre-trained PREVALENT')
         from vlnbert.vlnbert_PREVALENT import VLNBert
         model_class = VLNBert
         model_name_or_path = 'Prevalent/pretrained_model/pytorch_model.bin'

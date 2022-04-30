@@ -1,7 +1,6 @@
 ''' Batched Room-to-Room navigation environment '''
 
 import sys
-sys.path.append('buildpy36')
 import MatterSim
 import csv
 import numpy as np
@@ -332,5 +331,3 @@ class R2RBatch():
         stats['length'] = length / len(self.data)
         stats['path'] = path / len(self.data)
         return stats
-
-

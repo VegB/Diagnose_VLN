@@ -8,13 +8,15 @@ import random
 import networkx as nx
 from collections import defaultdict
 
+import sys
+sys.path.append('../../../../data_processing/Matterport3DSimulator/build-vln-hamt')
 import MatterSim
 
-from r2r.data_utils import load_nav_graphs
-from r2r.data_utils import new_simulator
-from r2r.data_utils import angle_feature, get_all_point_angle_feature
+from data_utils import load_nav_graphs
+from data_utils import new_simulator
+from data_utils import angle_feature, get_all_point_angle_feature
 
-from r2r.eval_utils import cal_dtw, cal_cls
+from eval_utils import cal_dtw, cal_cls
 
 ERROR_MARGIN = 3.0
 
@@ -376,6 +378,7 @@ class R2RBatch(object):
             'lengths': np.mean(metrics['trajectory_lengths']),
             'nav_error': np.mean(metrics['nav_error']),
             'oracle_error': np.mean(metrics['oracle_error']),
+            'success_rate': np.mean(metrics['success']),
             'sr': np.mean(metrics['success']) * 100,
             'oracle_sr': np.mean(metrics['oracle_success']) * 100,
             'spl': np.mean(metrics['spl']) * 100,

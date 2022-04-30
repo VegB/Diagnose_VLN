@@ -194,7 +194,7 @@ class Seq2SeqAgent(BaseAgent):
         sorted_tensor = seq_tensor[perm_idx]
         mask = (sorted_tensor == padding_idx)[:,:seq_lengths[0]]    # seq_lengths[0] is the Maximum length
         return Variable(sorted_tensor, requires_grad=False).long().cuda(), \
-               mask.byte().cuda(),  \
+               mask.bool().cuda(),  \
                list(seq_lengths), list(perm_idx)
 
     def _feature_variable(self, obs):

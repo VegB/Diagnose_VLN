@@ -14,19 +14,19 @@ from utils.distributed import all_gather, merge_dist_results
 
 from models.vlnbert_init import get_tokenizer
 
-from r2r.agent_cmt import Seq2SeqCMTAgent
+from agent_cmt import Seq2SeqCMTAgent
 
-from r2r.agent_r2rback import Seq2SeqBackAgent
-from r2r.data_utils import ImageFeaturesDB, construct_instrs
-from r2r.env import R2RBatch, R2RBackBatch
-from r2r.parser import parse_args
+from agent_r2rback import Seq2SeqBackAgent
+from data_utils import ImageFeaturesDB, construct_instrs, load_datasets
+from env import R2RBatch, R2RBackBatch
+from parser import parse_args, postprocess_args
 
 
 
 def build_dataset(args, rank=0, is_test=False):
     tok = get_tokenizer(args)
 
-    feat_db = ImageFeaturesDB(args.img_ft_file, args.image_feat_size)
+    feat_db = ImageFeaturesDB(args.img_ft_file, args.image_feat_size, args.log_filepath)
 
     if args.dataset == 'r2r_back':
         dataset_class = R2RBackBatch
@@ -37,7 +37,7 @@ def build_dataset(args, rank=0, is_test=False):
     # in order to make different processes deal with different training examples
     # we need to shuffle the data with different seed in each processes
     train_instr_data = construct_instrs(
-        args.anno_dir, args.dataset, ['train'], tokenizer=tok, max_instr_len=args.max_instr_len
+        args.anno_dir, args.dataset, ['train'], tokenizer=tok, max_instr_len=args.max_instr_len, args=args
     )
     train_env = dataset_class(
         feat_db, train_instr_data, args.connectivity_dir, batch_size=args.batch_size, 
@@ -56,22 +56,22 @@ def build_dataset(args, rank=0, is_test=False):
     else:
         aug_env = None
 
-    val_env_names = ['val_train_seen', 'val_seen']
+    val_env_names = ['val_seen']  # 'val_train_seen'
     if args.test or args.dataset != 'r4r':
         val_env_names.append('val_unseen')
     else:   # val_unseen of r4r is too large to evaluate in training
         val_env_names.append('val_unseen_sampled')
 
     if args.submit:
-        if args.dataset == 'r2r':
+        if args.dataset == 'R2R':
             val_env_names.append('test')
-        elif args.dataset == 'rxr':
+        elif args.dataset == 'RxR-en':
             val_env_names.extend(['test_challenge_public', 'test_standard_public'])
     
     val_envs = {}
     for split in val_env_names:
         val_instr_data = construct_instrs(
-            args.anno_dir, args.dataset, [split], tokenizer=tok, max_instr_len=args.max_instr_len
+            args.anno_dir, args.dataset, [split], tokenizer=tok, max_instr_len=args.max_instr_len, args=args
         )
         val_env = dataset_class(
             feat_db, val_instr_data, args.connectivity_dir, batch_size=args.batch_size, 
@@ -237,12 +237,10 @@ def valid(args, train_env, val_envs, rank=-1):
     if default_gpu:
         with open(os.path.join(args.log_dir, 'validation_args.json'), 'w') as outf:
             json.dump(vars(args), outf, indent=4)
-        record_file = os.path.join(args.log_dir, 'valid.txt')
+        record_file = args.log_filepath  # os.path.join(args.log_dir, 'valid.txt')
         write_to_record_file(str(args) + '\n\n', record_file)
 
     for env_name, env in val_envs.items():
-        if os.path.exists(os.path.join(args.pred_dir, "submit_%s.json" % env_name)):
-            continue
         agent.logs = defaultdict(list)
         agent.env = env
 
@@ -259,7 +257,7 @@ def valid(args, train_env, val_envs, rank=-1):
                 loss_str = "Env name: %s" % env_name
                 for metric, val in score_summary.items():
                     loss_str += ', %s: %.2f' % (metric, val)
-                write_to_record_file(loss_str+'\n', record_file)
+                write_to_record_file(loss_str, record_file)
 
             if args.submit:
                 json.dump(
@@ -269,8 +267,44 @@ def valid(args, train_env, val_envs, rank=-1):
                 )
 
 
-def main():
-    args = parse_args()
+def main(args):
+    args = postprocess_args(args)
+
+    model_name = 'VLN-HAMT'
+
+    if args.setting == 'default':
+        args.log_filepath = os.path.join(args.val_log_dir, f'test.test_{model_name}_{args.features}_{args.setting}.out')
+    elif args.setting == 'mask_env':
+        args.log_filepath = os.path.join(args.val_log_dir, f'test.test_{model_name}_{args.features}_mask_env_{args.img_feat_mode}_{args.rate:.2f}_{args.repeat_idx}.out')
+    else:  # mask_instructions
+        args.log_filepath = os.path.join(args.val_log_dir, f'test.test_{model_name}_{args.features}_{args.setting}_{args.rate:.2f}_{args.repeat_idx}.out')
+
+    print(f'Log will be written to {args.log_filepath}')
+    
+    # LOAD IMAGE FEATURE
+    if not args.reset_img_feat:
+        IMAGENET_FEATURES = os.path.join(args.img_dir, 'ResNet-152-imagenet.tsv')
+        PLACE365_FEATURES = os.path.join(args.img_dir, 'ResNet-152-places365.tsv')
+        VIT_FEATURES = os.path.join(args.img_dir, 'CLIP-ViT-B-32-views.tsv')
+        CLIP_RES101 = os.path.join(args.img_dir, 'CLIP-ResNet-101-views.tsv')
+        CLIP_RES50 = os.path.join(args.img_dir, 'CLIP-ResNet-50-views.tsv')
+        CLIP_RES50x4 = os.path.join(args.img_dir, 'CLIP-ResNet-50x4-views.tsv')
+        
+        if args.features == 'imagenet':
+            features = IMAGENET_FEATURES
+        elif args.features == 'places365':
+            features = PLACE365_FEATURES
+        elif args.features == 'vit':
+            features = VIT_FEATURES
+        elif args.features == 'clip_res101':
+            features = CLIP_RES101
+        elif args.features == 'clip_res50':
+            features = CLIP_RES50
+        elif args.features == 'clip_res50x4':
+            features = CLIP_RES50x4
+    else:
+        features = os.path.join(args.img_dir, args.img_feat_pattern % (args.img_feat_mode, args.rate, args.repeat_idx))
+    args.img_ft_file = features
 
     if args.world_size > 1:
         rank = init_distributed(args)
@@ -285,7 +319,14 @@ def main():
         train(args, train_env, val_envs, aug_env=aug_env, rank=rank)
     else:
         valid(args, train_env, val_envs, rank=rank)
-            
+
 
 if __name__ == '__main__':
-    main()
+    args = parse_args()
+
+    if args.setting == 'default':
+        main(args)
+    else:
+        for repeat_idx in range(args.repeat_time):
+            args.repeat_idx = repeat_idx
+            main(args)

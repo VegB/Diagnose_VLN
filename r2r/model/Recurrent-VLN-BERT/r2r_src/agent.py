@@ -98,7 +98,7 @@ class Seq2SeqAgent(BaseAgent):
         self.feature_size = self.env.feature_size
 
         # Models
-        if args.vlnbert == 'oscar':
+        if args.vlnbert in ['oscar', 'uninit_oscar']:
             self.vln_bert = model_OSCAR.VLNBERT(feature_size=self.feature_size + args.angle_feat_size).cuda()
             self.critic = model_OSCAR.Critic().cuda()
         elif args.vlnbert == 'prevalent':
@@ -255,7 +255,7 @@ class Seq2SeqAgent(BaseAgent):
                         'attention_mask': language_attention_mask,
                         'lang_mask':      language_attention_mask,
                         'token_type_ids': token_type_ids}
-        if args.vlnbert == 'oscar':
+        if args.vlnbert in ['oscar', 'uninit_oscar']:
             language_features = self.vln_bert(**language_inputs)
         elif args.vlnbert == 'prevalent':
             h_t, language_features = self.vln_bert(**language_inputs)
@@ -543,8 +543,8 @@ class Seq2SeqAgent(BaseAgent):
             self.vln_bert_optimizer.step()
             self.critic_optimizer.step()
 
-            if args.aug is None:
-                print_progress(iter, n_iters+1, prefix='Progress:', suffix='Complete', bar_length=50)
+#             if args.aug is None:
+#                 print_progress(iter, n_iters+1, prefix='Progress:', suffix='Complete', bar_length=50)
 
     def save(self, epoch, path):
         ''' Snapshot models '''

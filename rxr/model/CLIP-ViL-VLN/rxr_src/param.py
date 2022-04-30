@@ -34,7 +34,7 @@ class Param:
         self.parser.add_argument("--mlWeight", dest='ml_weight', type=float, default=0.05)
         self.parser.add_argument("--teacherWeight", dest='teacher_weight', type=float, default=1.)
         self.parser.add_argument("--accumulateGrad", dest='accumulate_grad', action='store_const', default=False, const=True)
-        self.parser.add_argument("--features", type=str, default='imagenet')
+        self.parser.add_argument("--features", type=str, default='vit')
 
         # Env Dropout Param
         self.parser.add_argument('--featdropout', type=float, default=0.3)
@@ -84,6 +84,19 @@ class Param:
         # Add
         self.parser.add_argument("--language", type=str, default="multi")
 
+        # Diagnose-VLN
+        self.parser.add_argument('--dataset', default='RxR-en', type=str, choices=['R2R', 'RxR-en'])
+        self.parser.add_argument('--setting', default='default', type=str)
+        self.parser.add_argument('--rate', default=1.0, type=float)
+        self.parser.add_argument('--repeat_time', default=5, type=int)
+        self.parser.add_argument('--repeat_idx', default=0, type=int)
+        self.parser.add_argument('--reset_img_feat', default=0, type=int)
+        self.parser.add_argument('--data_dir', default='../../data/')
+        self.parser.add_argument('--img_dir', default='../../data/img_features', type=str)
+        self.parser.add_argument('--img_feat_pattern', default='ResNet-152-imagenet_%s_m%.2f_%d.tsv', type=str)
+        self.parser.add_argument('--img_feat_mode', default='foreground', type=str)
+        self.parser.add_argument('--val_log_dir', default='../../log/', type=str)
+
         self.args = self.parser.parse_args()
 
         if self.args.optim == 'rms':
@@ -100,15 +113,6 @@ class Param:
 
 param = Param()
 args = param.args
-args.TRAIN_VOCAB = 'tasks/R2R/data/train_vocab.txt'
-args.TRAINVAL_VOCAB = 'tasks/R2R/data/trainval_vocab.txt'
 
-args.IMAGENET_FEATURES = 'img_features/CLIP-ViT-B-32-views.tsv'
-args.CANDIDATE_FEATURES = 'img_features/ResNet-152-candidate.tsv'
-args.features_fast = 'img_features/CLIP-ViT-B-32-views-fast.tsv'
-args.log_dir = 'snap/%s' % args.name
-
-if not os.path.exists(args.log_dir):
-    os.makedirs(args.log_dir)
-DEBUG_FILE = open(os.path.join('snap', args.name, "debug.log"), 'w')
-
+if not os.path.exists(args.val_log_dir):
+    os.makedirs(args.val_log_dir)
