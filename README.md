@@ -32,7 +32,7 @@ git clone --recursive https://github.com/VegB/Diagnose_VLN
 ```
 
 We describe the detailed environment setup for each model in the corresponding directory.
-For instance, guidance to setup R2R-EnvDrop can be found [here](r2r/model/R2R-enDrop/README.md).
+For instance, guidance to setup R2R-EnvDrop can be found [here](r2r/model/R2R-EnvDrop/README.md).
 
 
 ## Data Preparation
