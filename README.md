@@ -37,7 +37,7 @@ For instance, guidance to setup R2R-EnvDrop can be found [here](r2r/model/R2R-en
 
 ## Data Preparation
 - Prepare R2R data: [link](./r2r/data)
-- Prepare R2R data: [link](./rxr/data)
+- Prepare RxR data: [link](./rxr/data)
 - Prepare Touchdown data: [link](./touchdown/data)
 
 ## Acknowledgements
