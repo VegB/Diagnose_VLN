@@ -93,6 +93,11 @@ class Param:
         self.parser.add_argument('--img_feat_pattern', default='ResNet-152-imagenet_%s_m%.2f_%d.tsv', type=str)
         self.parser.add_argument('--img_feat_mode', default='foreground', type=str)
         self.parser.add_argument('--val_log_dir', default='../../log/', type=str)
+        self.parser.add_argument('--proto_file', default='../../../data_processing/Matterport3DSimulator/models/ResNet-152-deploy.prototxt', type=str)
+        self.parser.add_argument('--caffe_model', default='../../../data_processing/Matterport3DSimulator/models/ResNet-152-model.caffemodel', type=str)
+        self.parser.add_argument('--bbox_pattern', default='../../../data_processing/Matterport3DSimulator/private_bbox/%s_%s.json', type=str)
+        self.parser.add_argument('--matterport_scan_dir', default='../../../data_processing/Matterport3DSimulator/data/v1/scans/')
+        self.parser.add_argument('--feat_batch_size', default=6, type=int)
 
         self.args = self.parser.parse_args()
 

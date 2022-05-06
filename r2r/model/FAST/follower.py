@@ -188,12 +188,16 @@ class BaseAgent(object):
         beam_10_scores = []
         with torch.no_grad():
             while True:
+                cnt = 0
                 rollout_results = self.rollout()
                 for result in rollout_results:
                     if result['instr_id'] in self.results:
                         looped = True
                     else:
                         self.results[result['instr_id']] = result
+                    if cnt % 5 == 0:
+                        print(cnt, flush=True)
+                    cnt += 1
 #                     looped=True
 #                     break
 

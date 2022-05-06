@@ -1,6 +1,7 @@
 
 import torch
 
+import wandb
 import os
 import time
 import json
@@ -235,6 +236,7 @@ def valid(train_env, tok, val_envs={}, fout=None):
             for metric,val in score_summary.items():
                 loss_str += ', %s: %.4f' % (metric, val)
             print(loss_str, file=fout)
+            wandb.log({f'{env_name}-{metric}': val for metric, val in score_summary.items()})
 
         if args.submit:
             json.dump(
@@ -490,14 +492,28 @@ def train_val_augment(features, fout):
 
 
 def _main():
-    model_name = 'CLIP-ViL-VLN'
+    # Initialize wandb
+    logging_config = {
+        'dataset': args.dataset,
+        'features': args.features,
+        'setting': args.setting if not args.reset_img_feat else f'{args.setting}-{args.img_feat_mode}',
+        'seed': args.repeat_idx,
+        'reset_img_feat': args.reset_img_feat,
+        'img_feat_mode': 'None' if not args.reset_img_feat else args.img_feat_mode,
+    }
+    run = wandb.init(
+        project='Diagnose-VLN', 
+        reinit=True,
+        tags=['CLIP-ViL'],
+        config=logging_config,
+    )
 
     if args.setting == 'default':
-        args.log_filepath = os.path.join(args.val_log_dir, f'test.test_{model_name}_{args.features}_{args.setting}.out')
+        args.log_filepath = os.path.join(args.val_log_dir, f'test.test_CLIPVIL_{args.features}_{args.setting}.out')
     elif args.setting == 'mask_env':
-        args.log_filepath = os.path.join(args.val_log_dir, f'test.test_{model_name}_{args.features}_mask_env_{args.img_feat_mode}_{args.rate:.2f}_{args.repeat_idx}.out')
+        args.log_filepath = os.path.join(args.val_log_dir, f'test.test_CLIPVIL_{args.features}_mask_env_{args.img_feat_mode}_{args.rate:.2f}_{args.repeat_idx}.out')
     else:  # mask_instructions
-        args.log_filepath = os.path.join(args.val_log_dir, f'test.test_{model_name}_{args.features}_{args.setting}_{args.rate:.2f}_{args.repeat_idx}.out')
+        args.log_filepath = os.path.join(args.val_log_dir, f'test.test_CLIPVIL_{args.features}_{args.setting}_{args.rate:.2f}_{args.repeat_idx}.out')
 
     # LOAD IMAGE FEATURE
     if not args.reset_img_feat:
@@ -532,7 +548,8 @@ def _main():
             train_val_augment(features, fout)
         else:
             assert False
-
+    
+    run.finish() # close wandb
 
 if __name__ == "__main__":
     if args.setting == 'default' and not args.reset_img_feat:

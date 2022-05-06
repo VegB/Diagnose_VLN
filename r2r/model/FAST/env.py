@@ -7,7 +7,7 @@ module_path = os.path.abspath(os.path.join(file_path))
 sys.path.append(module_path)
 module_path = os.path.abspath(os.path.join(file_path,'..','..','build'))
 sys.path.append(module_path)
-sys.path.append('../R2R-EnvDrop/build/')
+sys.path.append('../../../data_processing/Matterport3DSimulator/build-envdrop')
 import MatterSim
 import csv
 import numpy as np
@@ -26,12 +26,16 @@ import itertools
 
 from collections import namedtuple, defaultdict
 
-from utils import load_datasets, load_nav_graphs, structured_map, vocab_pad_idx, decode_base64, k_best_indices, try_cuda, spatial_feature_from_bbox
+from utils import load_datasets, load_nav_graphs, structured_map, vocab_pad_idx, decode_base64, k_best_indices, try_cuda, spatial_feature_from_bbox, load_bbox, mask_objects, transform_img
 
 import torch
 from torch.autograd import Variable
 
 csv.field_size_limit(sys.maxsize)
+
+VIEWPOINT_SIZE = 36
+FEATURE_SIZE = 2048
+
 
 # Not needed for panorama action space
 # FOLLOWER_MODEL_ACTIONS = ['left', 'right', 'up', 'down', 'forward', '<end>', '<start>', '<ignore>']
@@ -119,17 +123,17 @@ def _adjust_heading(sim, heading):
     heading = (heading + 6) % 12 - 6  # minimum action to turn (e.g 11 -> -1)
     ''' Make possibly more than one heading turns '''
     for _ in range(int(abs(heading))):
-        sim.makeAction(0, np.sign(heading), 0)
+        sim.makeAction([0], [np.sign(heading)], [0])
 
 
 def _adjust_elevation(sim, elevation):
     for _ in range(int(abs(elevation))):
         ''' Make possibly more than one elevation turns '''
-        sim.makeAction(0, 0, np.sign(elevation))
+        sim.makeAction([0], [0], [np.sign(elevation)])
 
 
 def _navigate_to_location(sim, nextViewpointId, absViewIndex):
-    state = sim.getState()
+    state = sim.getState()[0]
     if state.location.viewpointId == nextViewpointId:
         return  # do nothing
 
@@ -137,7 +141,7 @@ def _navigate_to_location(sim, nextViewpointId, absViewIndex):
     _adjust_heading(sim, absViewIndex % 12 - state.viewIndex % 12)
     _adjust_elevation(sim, absViewIndex // 12 - state.viewIndex // 12)
     # find the next location
-    state = sim.getState()
+    state = sim.getState()[0]
     assert state.viewIndex == absViewIndex
     a, next_loc = None, None
     for n_loc, loc in enumerate(state.navigableLocations):
@@ -148,7 +152,7 @@ def _navigate_to_location(sim, nextViewpointId, absViewIndex):
     assert next_loc is not None
 
     # 3. Take action
-    sim.makeAction(a, 0, 0)
+    sim.makeAction([a], [0], [0])
 
 
 def _get_panorama_states(sim):
@@ -175,7 +179,7 @@ def _get_panorama_states(sim):
     Features are 36 x D_vis, ordered from relViewIndex 0 to 35 (i.e.
     feature[12] is always the feature of the patch forward horizontally)
     '''
-    state = sim.getState()
+    state = sim.getState()[0]
     initViewIndex = state.viewIndex
     # 1. first look down, turning to relViewIndex 0
     elevation_delta = -(state.viewIndex // 12)
@@ -192,7 +196,7 @@ def _get_panorama_states(sim):
         base_rel_heading = (relViewIndex % 12) * angle_inc
         base_rel_elevation = (relViewIndex // 12 - 1) * angle_inc
 
-        state = sim.getState()
+        state = sim.getState()[0]
         absViewIndex = state.viewIndex
         # get adjacent locations
         for loc in state.navigableLocations[1:]:
@@ -212,12 +216,12 @@ def _get_panorama_states(sim):
                     'distance': distance}
         # move to the next view
         if (relViewIndex + 1) % 12 == 0:
-            sim.makeAction(0, 1, 1)  # Turn right and look up
+            sim.makeAction([0], [1], [1])  # Turn right and look up
         else:
-            sim.makeAction(0, 1, 0)  # Turn right
+            sim.makeAction([0], [1], [0])  # Turn right
     # 3. turn back to the original view
     _adjust_elevation(sim, - 2 - elevation_delta)
-    state = sim.getState()
+    state = sim.getState()[0]
     assert state.viewIndex == initViewIndex  # check the agent is back
     # collect navigable location list
     stop = {
@@ -234,22 +238,28 @@ WorldState = namedtuple("WorldState", ["scanId", "viewpointId", "heading", "elev
 BottomUpViewpoint = namedtuple("BottomUpViewpoint", ["cls_prob", "image_features", "attribute_indices", "object_indices", "spatial_features", "no_object_mask"])
 
 def load_world_state(sim, world_state):
-    sim.newEpisode(*world_state)
+    a, b, c, d = world_state
+    if isinstance(a, str):
+        sim.newEpisode([a], [b], [c], [d])
+    elif isinstance(a, list):
+        sim.newEpisode(a, b, c, d)
+    # sim.newEpisode(*world_state)
 
 def get_world_state(sim):
-    state = sim.getState()
+    state = sim.getState()[0]
     return WorldState(scanId=state.scanId,
                       viewpointId=state.location.viewpointId,
                       heading=state.heading,
                       elevation=state.elevation)
 
-def make_sim(image_w, image_h, vfov):
+def make_sim(image_w, image_h, vfov, matterport_scan_dir):
     sim = MatterSim.Simulator()
     sim.setRenderingEnabled(False)
     sim.setDiscretizedViewingAngles(True)
     sim.setCameraResolution(image_w, image_h)
     sim.setCameraVFOV(math.radians(vfov))
-    sim.init()
+    sim.setDatasetPath(matterport_scan_dir)
+    sim.initialize()
     return sim
 
 # def encode_action_sequence(action_tuples):
@@ -294,6 +304,11 @@ class ImageFeatures(object):
     IMAGE_W = 640
     IMAGE_H = 480
     VFOV = 60
+
+    def set_feature_extractor(self, args, feat_sim, feat_net):
+        self.args = args
+        self.feat_sim = feat_sim
+        self.feat_net = feat_net
 
     @staticmethod
     def from_args(args):
@@ -356,37 +371,49 @@ class NoImageFeatures(ImageFeatures):
 
 class MeanPooledImageFeatures(ImageFeatures):
     def __init__(self, image_feature_datasets):
-        image_feature_datasets = sorted(image_feature_datasets)
-        self.image_feature_datasets = image_feature_datasets
-        self.mean_pooled_feature_stores = image_feature_datasets
-        self.feature_dim = MeanPooledImageFeatures.MEAN_POOLED_DIM * len(image_feature_datasets)
-        print('Loading image features from %s' % ', '.join(self.mean_pooled_feature_stores))
-        tsv_fieldnames = ['scanId', 'viewpointId', 'image_w','image_h', 'vfov', 'features']
-        self.features = defaultdict(list)
-        for mpfs in self.mean_pooled_feature_stores:
-            print(f"Will load the image feature from {mpfs}")
-            with open(mpfs, "rt") as tsv_in_file:
-                reader = csv.DictReader(tsv_in_file, delimiter='\t', fieldnames = tsv_fieldnames)
-                for item in reader:
-                    assert int(item['image_h']) == ImageFeatures.IMAGE_H
-                    assert int(item['image_w']) == ImageFeatures.IMAGE_W
-                    assert int(item['vfov']) == ImageFeatures.VFOV
-                    long_id = self._make_id(item['scanId'], item['viewpointId'])
-                    features = np.frombuffer(decode_base64(item['features']), dtype=np.float32).reshape((ImageFeatures.NUM_VIEWS, ImageFeatures.MEAN_POOLED_DIM))
-                    self.features[long_id].append(features)
-        assert all(len(feats) == len(self.mean_pooled_feature_stores) for feats in self.features.values())
-        self.features = {
-            long_id: np.concatenate(feats, axis=1)
-            for long_id, feats in self.features.items()
-        }
+        pass
 
     def _make_id(self, scanId, viewpointId):
         return scanId + '_' + viewpointId
 
-    def get_features(self, state):
-        long_id = self._make_id(state.scanId, state.location.viewpointId)
-        # Return feature of all the 36 views
-        return self.features[long_id]
+    def get_features(self, state, instruction_objects):
+        scanId = state.scanId
+        viewpointId = state.location.viewpointId
+        
+        # Fetch the objects mentioned in current instructions
+        to_be_masked_object_list = load_bbox(scanId, viewpointId, instruction_objects, self.args)
+
+        # Loop all discretized views from this location
+        blobs = []
+        features = np.empty([VIEWPOINT_SIZE, FEATURE_SIZE], dtype=np.float32)
+        for ix in range(VIEWPOINT_SIZE):
+            if ix == 0:
+                self.feat_sim.newEpisode([scanId], [viewpointId], [0], [math.radians(-30)])
+            elif ix % 12 == 0:
+                self.feat_sim.makeAction([0], [1.0], [1.0])
+            else:
+                self.feat_sim.makeAction([0], [1.0], [0])
+
+            state = self.feat_sim.getState()[0]
+            assert state.viewIndex == ix
+
+            # Transform and save generated image
+            masked_img = mask_objects(state.rgb, to_be_masked_object_list[ix], scanId, viewpointId, ix)
+            blobs.append(transform_img(masked_img))
+        
+        BATCH_SIZE = self.args.feat_batch_size
+        assert VIEWPOINT_SIZE % BATCH_SIZE == 0
+        forward_passes = VIEWPOINT_SIZE // BATCH_SIZE
+        ix = 0
+        for f in range(forward_passes):
+            for n in range(BATCH_SIZE):
+                # Copy image blob to the net
+                self.feat_net.blobs['data'].data[n, :, :, :] = blobs[ix]
+                ix += 1
+            # Forward pass
+            self.feat_net.forward()
+            features[f*BATCH_SIZE:(f+1)*BATCH_SIZE, :] = self.feat_net.blobs['pool5'].data[:,:,0,0]
+        return features
 
     def get_name(self):
         name = '+'.join(sorted(self.image_feature_datasets))
@@ -592,14 +619,16 @@ class EnvBatch():
     ''' A simple wrapper for a batch of MatterSim environments,
         using discretized viewpoints and pretrained features '''
 
-    def __init__(self, batch_size, beam_size):
+    def __init__(self, batch_size, beam_size, args=None):
+        self.args = args
+        self.instruction_objects = []
         self.sims = []
         self.batch_size = batch_size
         self.beam_size = beam_size
         for i in range(batch_size):
             beam = []
             for j in range(beam_size):
-                sim = make_sim(ImageFeatures.IMAGE_W, ImageFeatures.IMAGE_H, ImageFeatures.VFOV)
+                sim = make_sim(ImageFeatures.IMAGE_W, ImageFeatures.IMAGE_H, ImageFeatures.VFOV, self.args.matterport_scan_dir)
                 beam.append(sim)
             self.sims.append(beam)
 
@@ -615,7 +644,7 @@ class EnvBatch():
         assert len(scanIds) == len(self.sims)
         world_states = []
         for i, (scanId, viewpointId, heading) in enumerate(zip(scanIds, viewpointIds, headings)):
-            world_state = WorldState(scanId, viewpointId, heading, 0)
+            world_state = WorldState([scanId], [viewpointId], [heading], [0])
             if beamed:
                 world_states.append([world_state])
             else:
@@ -673,6 +702,7 @@ class R2RBatch():
     ''' Implements the Room to Room navigation task, using discretized viewpoints and pretrained features '''
 
     def __init__(self, image_features_list, batch_size=100, seed=10, splits=['train'], args=None, tokenizer=None, beam_size=1, instruction_limit=None):
+        self.args = args
         self.image_features_list = image_features_list
         self.data = []
         self.scans = []
@@ -689,6 +719,7 @@ class R2RBatch():
                 self.scans.append(item['scan'])
                 new_item = dict(item)
                 new_item['instr_id'] = '%s_%d' % (item['path_id'], j)
+                new_item['instr_objects'] = item['objects'][j]
                 new_item['instructions'] = instr
                 if tokenizer:
                     self.tokenizer = tokenizer
@@ -721,7 +752,7 @@ class R2RBatch():
             invalid = True
         if force_reload or invalid:
             self.beam_size = beam_size
-            self.env = EnvBatch(self.batch_size, beam_size)
+            self.env = EnvBatch(self.batch_size, beam_size, args=self.args)
 
     def _load_nav_graphs(self):
         ''' Load connectivity graph for each scan, useful for reasoning about shortest paths '''
@@ -756,6 +787,8 @@ class R2RBatch():
         if sort_instr_length:
             batch = sorted(batch, key=lambda item: item['instr_length'], reverse=True)
         self.batch = batch
+        for item in self.batch:
+            self.env.instruction_objects.append(item['instr_objects'])
 
     def reset_epoch(self):
         ''' Reset the data index to beginning of epoch. Primarily for testing.
@@ -818,7 +851,7 @@ class R2RBatch():
                 if item['scan'] != state.scanId:
                     item = self.data[self.instr_id_to_idx[instr_id]]
                     assert item['scan'] == state.scanId
-                feature = [featurizer.get_features(state) for featurizer in self.image_features_list]
+                feature = [featurizer.get_features(state, self.env.instruction_objects[i]) for featurizer in self.image_features_list]
                 assert len(feature) == 1, 'for now, only work with MeanPooled feature'
                 feature_with_loc = np.concatenate((feature[0], _static_loc_embeddings[state.viewIndex]), axis=-1)
                 action_embedding = _build_action_embedding(adj_loc_list, feature[0])

@@ -9,6 +9,12 @@ import pandas as pd
 from collections import defaultdict
 import argparse
 
+import caffe
+import math
+import sys
+sys.path.append('../../../data_processing/Matterport3DSimulator/build-envdrop')
+import MatterSim
+
 import utils
 from utils import read_vocab, Tokenizer, vocab_pad_idx, timeSince, try_cuda
 from utils import module_grad, colorize, filter_param
@@ -239,6 +245,33 @@ def make_env_and_models(args, train_vocab_path, train_splits, test_splits):
     image_features_list = ImageFeatures.from_args(args)
     vocab = read_vocab(train_vocab_path)
     tok = Tokenizer(vocab=vocab)
+
+    featurized_scans = set([file.split('_')[0] for file in os.listdir('./connectivity/')])
+    print('#featurized_scans = ', len(featurized_scans))
+
+    # Simulator image parameters
+    WIDTH=640
+    HEIGHT=480
+    VFOV=60
+
+    # Set up the simulator for image feature extraction
+    sim = MatterSim.Simulator()
+    sim.setDiscretizedViewingAngles(True)
+    sim.setCameraResolution(WIDTH, HEIGHT)
+    sim.setCameraVFOV(math.radians(VFOV))
+    sim.setBatchSize(1)
+    sim.setDatasetPath(args.matterport_scan_dir)
+    sim.initialize()
+
+    # Set up Caffe resnet
+    caffe.set_device(0)
+    caffe.set_mode_gpu()
+    net = caffe.Net(args.proto_file, args.caffe_model, caffe.TEST)
+    net.blobs['data'].reshape(args.feat_batch_size, 3, HEIGHT, WIDTH)
+
+    for img_feat_extractor in image_features_list:
+        img_feat_extractor.set_feature_extractor(args=args, feat_sim=sim, feat_net=net)
+
     train_env = R2RBatch(image_features_list, batch_size=args.batch_size,
                          splits=train_splits, tokenizer=tok, args=args) if len(train_splits) > 0 else None
     test_envs = {
@@ -254,9 +287,7 @@ def make_env_and_models(args, train_vocab_path, train_splits, test_splits):
 
 
 def train_setup(args, train_splits=['train']):
-    # val_splits = ['train_subset', 'val_seen', 'val_unseen']
-    val_splits = ['val_seen', 'val_unseen']
-    #val_splits = ['val_unseen']
+    val_splits = ['val_unseen']  #  ['train_subset', 'val_seen', 'val_unseen']
     if args.use_test_set:
         val_splits = ['test']
     if args.debug:

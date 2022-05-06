@@ -114,6 +114,40 @@ def parse_args():
 
 def postprocess_args(args):
     ROOTDIR = args.root_dir
+
+    if args.setting == 'default':
+        args.log_filepath = os.path.join(args.val_log_dir, f'test.test_VLNHAMT_{args.features}_{args.setting}.out')
+    elif args.setting == 'mask_env':
+        args.log_filepath = os.path.join(args.val_log_dir, f'test.test_VLNHAMT_{args.features}_mask_env_{args.img_feat_mode}_{args.rate:.2f}_{args.repeat_idx}.out')
+    else:  # mask_instructions
+        args.log_filepath = os.path.join(args.val_log_dir, f'test.test_VLNHAMT_{args.features}_{args.setting}_{args.rate:.2f}_{args.repeat_idx}.out')
+
+    print(f'Log will be written to {args.log_filepath}')
+    
+    # LOAD IMAGE FEATURE
+    if not args.reset_img_feat:
+        IMAGENET_FEATURES = os.path.join(args.img_dir, 'ResNet-152-imagenet.tsv')
+        PLACE365_FEATURES = os.path.join(args.img_dir, 'ResNet-152-places365.tsv')
+        VIT_FEATURES = os.path.join(args.img_dir, 'CLIP-ViT-B-32-views.tsv')
+        CLIP_RES101 = os.path.join(args.img_dir, 'CLIP-ResNet-101-views.tsv')
+        CLIP_RES50 = os.path.join(args.img_dir, 'CLIP-ResNet-50-views.tsv')
+        CLIP_RES50x4 = os.path.join(args.img_dir, 'CLIP-ResNet-50x4-views.tsv')
+        
+        if args.features == 'imagenet':
+            features = IMAGENET_FEATURES
+        elif args.features == 'places365':
+            features = PLACE365_FEATURES
+        elif args.features == 'vit':
+            features = VIT_FEATURES
+        elif args.features == 'clip_res101':
+            features = CLIP_RES101
+        elif args.features == 'clip_res50':
+            features = CLIP_RES50
+        elif args.features == 'clip_res50x4':
+            features = CLIP_RES50x4
+    else:
+        features = os.path.join(args.img_dir, args.img_feat_pattern % (args.img_feat_mode, args.rate, args.repeat_idx))
+    args.img_ft_file = features
     
     args.connectivity_dir = os.path.join(ROOTDIR, 'R2R', 'connectivity')
     args.scan_data_dir = os.path.join(ROOTDIR, 'Matterport3D', 'v1_unzip_scans')

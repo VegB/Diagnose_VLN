@@ -1,7 +1,7 @@
 ''' Batched Room-to-Room navigation environment '''
 
 import sys
-sys.path.append('../R2R-EnvDrop/build/')
+sys.path.append('../../../data_processing/Matterport3DSimulator/build-envdrop')
 import MatterSim
 import csv
 import numpy as np
@@ -14,22 +14,26 @@ import random
 import networkx as nx
 from param import args
 
-from utils import load_datasets, load_nav_graphs, pad_instr_tokens
+from utils import load_datasets, load_nav_graphs, pad_instr_tokens, load_bbox, mask_objects, transform_img
 
 csv.field_size_limit(sys.maxsize)
+
+VIEWPOINT_SIZE = 36
+FEATURE_SIZE = 2048
 
 
 class EnvBatch():
     ''' A simple wrapper for a batch of MatterSim environments,
         using discretized viewpoints and pretrained features '''
 
-    def __init__(self, feature_store=None, batch_size=100):
+    def __init__(self, feature_store=None, featurized_scans=None, feat_sim=None, feat_net=None, args=None, batch_size=100):
         """
         1. Load pretrained image feature
         2. Init the Simulator.
         :param feature_store: The name of file stored the feature.
         :param batch_size:  Used to create the simulator list.
         """
+        self.args = args
         if feature_store:
             if type(feature_store) is dict:     # A silly way to avoid multiple reading
                 self.features = feature_store
@@ -39,11 +43,16 @@ class EnvBatch():
                 self.feature_size = next(iter(self.features.values())).shape[-1]
                 print('The feature size is %d' % self.feature_size)
         else:
-            print('    Image features not provided - in testing mode')
+            print('    Image features not provided - will be generated dynamically')
             self.features = None
+            self.feature_size = FEATURE_SIZE
+            self.feat_sim = feat_sim
+            self.feat_net = feat_net
             self.image_w = 640
             self.image_h = 480
             self.vfov = 60
+        self.featurized_scans = featurized_scans
+        self.instruction_objects = []
         self.sims = []
         for i in range(batch_size):
             sim = MatterSim.Simulator()
@@ -51,7 +60,8 @@ class EnvBatch():
             sim.setDiscretizedViewingAngles(True)   # Set increment/decrement to 30 degree. (otherwise by radians)
             sim.setCameraResolution(self.image_w, self.image_h)
             sim.setCameraVFOV(math.radians(self.vfov))
-            sim.init()
+            sim.setDatasetPath(self.args.matterport_scan_dir)
+            sim.initialize()
             self.sims.append(sim)
 
     def _make_id(self, scanId, viewpointId):
@@ -59,7 +69,7 @@ class EnvBatch():
 
     def newEpisodes(self, scanIds, viewpointIds, headings):
         for i, (scanId, viewpointId, heading) in enumerate(zip(scanIds, viewpointIds, headings)):
-            self.sims[i].newEpisode(scanId, viewpointId, heading, 0)
+            self.sims[i].newEpisode([scanId], [viewpointId], [heading], [0])
 
     def getStates(self):
         """
@@ -70,14 +80,52 @@ class EnvBatch():
         """
         feature_states = []
         for i, sim in enumerate(self.sims):
-            state = sim.getState()
+            current_state = sim.getState()[0]
 
-            long_id = self._make_id(state.scanId, state.location.viewpointId)
+            scanId = current_state.scanId
+            viewpointId = current_state.location.viewpointId
+
+            """EXTRACT FEAT DYNAMICALLY"""
             if self.features:
-                feature = self.features[long_id]
-                feature_states.append((feature, state))
+                long_id = self._make_id(scanId, viewpointId)
+                features = self.features[long_id]
             else:
-                feature_states.append((None, state))
+                # Fetch the objects mentioned in current instructions
+                to_be_masked_object_list = load_bbox(scanId, viewpointId, self.instruction_objects[i], self.args)
+
+                # Loop all discretized views from this location
+                blobs = []
+                features = np.empty([VIEWPOINT_SIZE, FEATURE_SIZE], dtype=np.float32)
+                for ix in range(VIEWPOINT_SIZE):
+                    if ix == 0:
+                        self.feat_sim.newEpisode([scanId], [viewpointId], [0], [math.radians(-30)])
+                    elif ix % 12 == 0:
+                        self.feat_sim.makeAction([0], [1.0], [1.0])
+                    else:
+                        self.feat_sim.makeAction([0], [1.0], [0])
+
+                    state = self.feat_sim.getState()[0]
+                    assert state.viewIndex == ix
+
+                    # Transform and save generated image
+                    masked_img = mask_objects(state.rgb, to_be_masked_object_list[ix], scanId, viewpointId, ix)
+                    blobs.append(transform_img(masked_img))
+
+                BATCH_SIZE = self.args.feat_batch_size
+                assert VIEWPOINT_SIZE % BATCH_SIZE == 0
+                forward_passes = VIEWPOINT_SIZE // BATCH_SIZE
+                ix = 0
+                for f in range(forward_passes):
+                    for n in range(BATCH_SIZE):
+                        # Copy image blob to the net
+                        self.feat_net.blobs['data'].data[n, :, :, :] = blobs[ix]
+                        ix += 1
+                    # Forward pass
+                    self.feat_net.forward()
+                    features[f*BATCH_SIZE:(f+1)*BATCH_SIZE, :] = self.feat_net.blobs['pool5'].data[:,:,0,0]
+                
+            feature_states.append((features, current_state))
+
         return feature_states
 
     def makeActions(self, actions):
@@ -90,13 +138,11 @@ class EnvBatch():
 class R2RBatch():
     ''' Implements the Room to Room navigation task, using discretized viewpoints and pretrained features '''
 
-    def __init__(self, feature_store, batch_size=100, seed=10, splits=['train'], args=None, tokenizer=None,
-                 name=None):
-        self.env = EnvBatch(feature_store=feature_store, batch_size=batch_size)
-        if feature_store:
-            self.feature_size = self.env.feature_size
-        else:
-            self.feature_size = 2048
+    def __init__(self, feature_store, featurized_scans, batch_size=100, seed=10, splits=['train'], tokenizer=None,
+                 feat_sim=None, feat_net=None, name=None):
+        self.env = EnvBatch(feature_store=feature_store, featurized_scans=featurized_scans, feat_sim=feat_sim, feat_net=feat_net, batch_size=batch_size, args=args)
+        self.args = args
+        self.feature_size = self.env.feature_size
         self.data = []
         if tokenizer:
             self.tok = tokenizer
@@ -122,6 +168,7 @@ class R2RBatch():
                         try:
                             new_item = dict(item)
                             new_item['instr_id'] = '%s_%d' % (item['path_id'], j)
+                            new_item['instr_objects'] = item['objects'][j]
                             new_item['instructions'] = instr
 
                             ''' BERT tokenizer '''
@@ -202,6 +249,8 @@ class R2RBatch():
             else:
                 self.ix += batch_size
         self.batch = batch
+        for item in self.batch:
+            self.env.instruction_objects.append(item['instr_objects'])
 
     def reset_epoch(self, shuffle=False):
         ''' Reset the data index to beginning of epoch. Primarily for testing.
@@ -227,13 +276,13 @@ class R2RBatch():
         if long_id not in self.buffered_state_dict:
             for ix in range(36):
                 if ix == 0:
-                    self.sim.newEpisode(scanId, viewpointId, 0, math.radians(-30))
+                    self.sim.newEpisode([scanId], [viewpointId], [0], [math.radians(-30)])
                 elif ix % 12 == 0:
-                    self.sim.makeAction(0, 1.0, 1.0)
+                    self.sim.makeAction([0], [1.0], [1.0])
                 else:
-                    self.sim.makeAction(0, 1.0, 0)
+                    self.sim.makeAction([0], [1.0], [0])
 
-                state = self.sim.getState()
+                state = self.sim.getState()[0]
                 assert state.viewIndex == ix
 
                 # Heading and elevation for the viewpoint center

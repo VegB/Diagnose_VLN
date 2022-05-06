@@ -3,6 +3,7 @@ import json
 import time
 import numpy as np
 from collections import defaultdict
+import wandb
 
 import torch
 from tensorboardX import SummaryWriter
@@ -258,6 +259,7 @@ def valid(args, train_env, val_envs, rank=-1):
                 for metric, val in score_summary.items():
                     loss_str += ', %s: %.2f' % (metric, val)
                 write_to_record_file(loss_str, record_file)
+                wandb.log({f'{env_name}-{metric}': val for metric, val in score_summary.items()})
 
             if args.submit:
                 json.dump(
@@ -270,41 +272,21 @@ def valid(args, train_env, val_envs, rank=-1):
 def main(args):
     args = postprocess_args(args)
 
-    model_name = 'VLN-HAMT'
-
-    if args.setting == 'default':
-        args.log_filepath = os.path.join(args.val_log_dir, f'test.test_{model_name}_{args.features}_{args.setting}.out')
-    elif args.setting == 'mask_env':
-        args.log_filepath = os.path.join(args.val_log_dir, f'test.test_{model_name}_{args.features}_mask_env_{args.img_feat_mode}_{args.rate:.2f}_{args.repeat_idx}.out')
-    else:  # mask_instructions
-        args.log_filepath = os.path.join(args.val_log_dir, f'test.test_{model_name}_{args.features}_{args.setting}_{args.rate:.2f}_{args.repeat_idx}.out')
-
-    print(f'Log will be written to {args.log_filepath}')
-    
-    # LOAD IMAGE FEATURE
-    if not args.reset_img_feat:
-        IMAGENET_FEATURES = os.path.join(args.img_dir, 'ResNet-152-imagenet.tsv')
-        PLACE365_FEATURES = os.path.join(args.img_dir, 'ResNet-152-places365.tsv')
-        VIT_FEATURES = os.path.join(args.img_dir, 'CLIP-ViT-B-32-views.tsv')
-        CLIP_RES101 = os.path.join(args.img_dir, 'CLIP-ResNet-101-views.tsv')
-        CLIP_RES50 = os.path.join(args.img_dir, 'CLIP-ResNet-50-views.tsv')
-        CLIP_RES50x4 = os.path.join(args.img_dir, 'CLIP-ResNet-50x4-views.tsv')
-        
-        if args.features == 'imagenet':
-            features = IMAGENET_FEATURES
-        elif args.features == 'places365':
-            features = PLACE365_FEATURES
-        elif args.features == 'vit':
-            features = VIT_FEATURES
-        elif args.features == 'clip_res101':
-            features = CLIP_RES101
-        elif args.features == 'clip_res50':
-            features = CLIP_RES50
-        elif args.features == 'clip_res50x4':
-            features = CLIP_RES50x4
-    else:
-        features = os.path.join(args.img_dir, args.img_feat_pattern % (args.img_feat_mode, args.rate, args.repeat_idx))
-    args.img_ft_file = features
+    # Initialize wandb
+    logging_config = {
+        'dataset': args.dataset,
+        'features': args.features,
+        'setting': args.setting if not args.reset_img_feat else f'{args.setting}-{args.img_feat_mode}',
+        'seed': args.repeat_idx,
+        'reset_img_feat': args.reset_img_feat,
+        'img_feat_mode': 'None' if not args.reset_img_feat else args.img_feat_mode,
+    }
+    run = wandb.init(
+        project='Diagnose-VLN', 
+        reinit=True,
+        tags=['VLN-HAMT'],
+        config=logging_config,
+    )
 
     if args.world_size > 1:
         rank = init_distributed(args)
@@ -319,6 +301,8 @@ def main(args):
         train(args, train_env, val_envs, aug_env=aug_env, rank=rank)
     else:
         valid(args, train_env, val_envs, rank=rank)
+
+    run.finish() # close wandb 
 
 
 if __name__ == '__main__':

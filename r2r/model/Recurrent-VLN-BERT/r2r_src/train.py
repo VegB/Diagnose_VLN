@@ -18,6 +18,12 @@ import warnings
 warnings.filterwarnings("ignore")
 from tensorboardX import SummaryWriter
 
+import caffe
+import math
+import sys
+sys.path.append('../../../data_processing/Matterport3DSimulator/build-envdrop')
+import MatterSim
+
 from vlnbert.vlnbert_init import get_tokenizer
 
 log_dir = 'snap/%s' % args.name
@@ -178,16 +184,36 @@ def train_val(features, fout, test_only=False):
     setup()
     tok = get_tokenizer(args)
 
-    feat_dict = read_img_features(features, test_only=test_only)
+    feat_dict = None
+    featurized_scans = set([file.split('_')[0] for file in os.listdir('./connectivity/')])
+    print('#featurized_scans = ', len(featurized_scans))
+
+    # Simulator image parameters
+    WIDTH=640
+    HEIGHT=480
+    VFOV=60
+
+    # Set up the simulator for image feature extraction
+    sim = MatterSim.Simulator()
+    sim.setDiscretizedViewingAngles(True)
+    sim.setCameraResolution(WIDTH, HEIGHT)
+    sim.setCameraVFOV(math.radians(VFOV))
+    sim.setBatchSize(1)
+    sim.setDatasetPath(args.matterport_scan_dir)
+    sim.initialize()
+
+    # Set up Caffe resnet
+    caffe.set_device(0)
+    caffe.set_mode_gpu()
+    net = caffe.Net(args.proto_file, args.caffe_model, caffe.TEST)
+    net.blobs['data'].reshape(args.feat_batch_size, 3, HEIGHT, WIDTH)
 
     if test_only:
-        featurized_scans = None
         val_env_names = ['val_train_seen']
     else:
-        featurized_scans = set([key.split("_")[0] for key in list(feat_dict.keys())])
-        val_env_names = ['val_seen', 'val_unseen']  # 'val_train_seen', 
+        val_env_names = ['val_unseen']  # 'val_train_seen', 'val_seen', 
 
-    train_env = R2RBatch(feat_dict, batch_size=args.batchSize, splits=['train'], tokenizer=tok, args=args)
+    train_env = R2RBatch(feat_dict, featurized_scans=featurized_scans, feat_sim=sim, feat_net=net, batch_size=args.batchSize, splits=['train'], tokenizer=tok)
     from collections import OrderedDict
 
     if args.submit:
@@ -197,7 +223,7 @@ def train_val(features, fout, test_only=False):
 
     val_envs = OrderedDict(
         ((split,
-          (R2RBatch(feat_dict, batch_size=args.batchSize, splits=[split], tokenizer=tok, args=args),
+          (R2RBatch(feat_dict, featurized_scans=featurized_scans, feat_sim=sim, feat_net=net, batch_size=args.batchSize, splits=[split], tokenizer=tok),
            Evaluation([split], featurized_scans, tok, args=args))
           )
          for split in val_env_names
@@ -256,16 +282,7 @@ def _main():
         args.log_filepath = os.path.join(args.val_log_dir, f'test.test_{model_name}_{args.features}_{args.setting}_{args.rate:.2f}_{args.repeat_idx}.out')
 
     # LOAD IMAGE FEATURE
-    if not args.reset_img_feat:
-        IMAGENET_FEATURES = os.path.join(args.img_dir, 'ResNet-152-imagenet.tsv')
-        PLACE365_FEATURES = os.path.join(args.img_dir, 'ResNet-152-places365.tsv')
-        
-        if args.features == 'imagenet':
-            features = IMAGENET_FEATURES
-        elif args.features == 'places365':
-            features = PLACE365_FEATURES
-    else:
-        features = os.path.join(args.img_dir, args.img_feat_pattern % (args.img_feat_mode, args.rate, args.repeat_idx))
+    features = None  # will be extracted dynamically
 
     with open(args.log_filepath, 'w') as fout:
         if args.train in ['listener', 'validlistener']:

@@ -15,6 +15,7 @@ import itertools
 import base64
 import heapq
 import random
+import cv2
 from nltk.corpus import wordnet as wn
 import torch
 
@@ -86,8 +87,8 @@ def load_datasets(args, splits):
             split, number = components[0], int(components[1])
 
         # Load Json
-        if setting in ['default', 'mask_env', 'numeric_default']:
-            instr_setting = setting if setting != 'mask_env' else 'default'
+        if setting in ['default', 'mask_env', 'dynamic_mask_env', 'numeric_default']:
+            instr_setting = setting if setting not in ['mask_env', 'dynamic_mask_env'] else 'default'
             filename = os.path.join(args.data_dir, instr_setting, f'{args.dataset}_{split}.json')
         else:
             label = get_label_for_setting(setting)
@@ -453,3 +454,74 @@ def check_dir(dir):
     else:
         os.mkdir(dir)
         print(f'{dir} created!')
+
+
+def _match_object(object, list_of_objects):
+    """Check if obj is contained in a list of objects, or is match to some object in the list"""
+    if object in ['floor', 'wall', 'ceiling']:
+        return False
+    for obj in set(list_of_objects):
+        if obj in object:
+            return True
+    return False
+
+
+def load_bbox(scanId, viewpointId, instruction_objects, args):
+    """
+    Load bbox json.
+    Mask out portions of objects.
+    Reorganize bbox.
+    """
+    mask_rate = args.rate
+    bbox_file = args.bbox_pattern % (scanId, viewpointId)
+    data = json.load(open(bbox_file, 'r'))
+
+    mentioned_objects = []
+    all_appeared_obj_ids = []
+    for idx in range(36):
+        current_objects = data[str(idx)]
+        for obj_id, item in current_objects.items():
+            all_appeared_obj_ids.append(obj_id)
+            if _match_object(item['name'], instruction_objects):
+                mentioned_objects.append(obj_id)
+    mentioned_objects = list(set(mentioned_objects))
+    mask_num = int(mask_rate*len(mentioned_objects))
+    masked_objects = random.sample(mentioned_objects, mask_num)
+
+    if args.img_feat_mode == 'dynamic_controlled_trial':
+        all_appeared_obj_ids = list(set(all_appeared_obj_ids))
+        masked_objects = random.sample(all_appeared_obj_ids, mask_num)
+
+    rst = [[] for _ in range(36)]
+    for idx in range(36):
+        current_objects = data[str(idx)]
+        for obj_id, item in current_objects.items():
+            if obj_id in masked_objects:
+                rst[idx].append(item)
+
+    return rst
+
+
+def mask_objects(img, to_be_masked_objs_info, scanId, viewpointId, ix):
+    img = np.array(img, copy=True)
+
+    for obj_info in to_be_masked_objs_info:
+        average = img.mean(axis=0).mean(axis=0)  # fill mask with average color
+        s_x, s_y, w, h = obj_info['bbox2d']
+        e_x = s_x + w
+        e_y = s_y + h
+        thickness = -1
+        img = cv2.rectangle(img, (s_x, s_y), (e_x, e_y), average, thickness)
+
+    return img
+
+
+def transform_img(im):
+    ''' Prep opencv 3 channel image for the network '''
+    im = np.array(im, copy=True)
+    im_orig = im.astype(np.float32, copy=True)
+    im_orig -= np.array([[[103.1, 115.9, 123.2]]]) # BGR pixel mean
+    blob = np.zeros((1, im.shape[0], im.shape[1], 3), dtype=np.float32)
+    blob[0, :, :, :] = im_orig
+    blob = blob.transpose((0, 3, 1, 2))
+    return blob 

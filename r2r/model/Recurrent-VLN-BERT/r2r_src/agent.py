@@ -65,6 +65,7 @@ class BaseAgent(object):
                     self.loss = 0
                     self.results[traj['instr_id']] = traj['path']
         else:   # Do a full round
+            cnt = 0
             while True:
                 for traj in self.rollout(**kwargs):
                     if traj['instr_id'] in self.results:
@@ -72,6 +73,9 @@ class BaseAgent(object):
                     else:
                         self.loss = 0
                         self.results[traj['instr_id']] = traj['path']
+                    if cnt % 100 == 0:
+                        print(cnt, flush=True)
+                    cnt += 1
                 if looped:
                     break
 
@@ -141,7 +145,7 @@ class Seq2SeqAgent(BaseAgent):
 
     def _feature_variable(self, obs):
         ''' Extract precomputed features into variable. '''
-        features = np.empty((len(obs), args.views, self.feature_size + args.angle_feat_size), dtype=np.float32)
+        features = np.empty((len(obs), 36, self.feature_size + args.angle_feat_size), dtype=np.float32)
         for i, ob in enumerate(obs):
             features[i, :, :] = ob['feature']  # Image feat
         return Variable(torch.from_numpy(features), requires_grad=False).cuda()
@@ -195,9 +199,10 @@ class Seq2SeqAgent(BaseAgent):
         """
         def take_action(i, idx, name):
             if type(name) is int:       # Go to the next view
-                self.env.env.sims[idx].makeAction(name, 0, 0)
+                self.env.env.sims[idx].makeAction([name], [0], [0])
             else:                       # Adjust
-                self.env.env.sims[idx].makeAction(*self.env_actions[name])
+                a, b, c = self.env_actions[name]
+                self.env.env.sims[idx].makeAction([a], [b], [c])
 
         if perm_idx is None:
             perm_idx = range(len(perm_obs))
@@ -216,13 +221,13 @@ class Seq2SeqAgent(BaseAgent):
                 while src_level > trg_level:    # Tune down
                     take_action(i, idx, 'down')
                     src_level -= 1
-                while self.env.env.sims[idx].getState().viewIndex != trg_point:    # Turn right until the target
+                while self.env.env.sims[idx].getState()[0].viewIndex != trg_point:    # Turn right until the target
                     take_action(i, idx, 'right')
                 assert select_candidate['viewpointId'] == \
-                       self.env.env.sims[idx].getState().navigableLocations[select_candidate['idx']].viewpointId
+                       self.env.env.sims[idx].getState()[0].navigableLocations[select_candidate['idx']].viewpointId
                 take_action(i, idx, select_candidate['idx'])
 
-                state = self.env.env.sims[idx].getState()
+                state = self.env.env.sims[idx].getState()[0]
                 if traj is not None:
                     traj[i]['path'].append((state.location.viewpointId, state.heading, state.elevation))
 

@@ -325,6 +325,11 @@ def make_arg_parser():
     parser.add_argument('--cache_result_dir', type=str, default='./cache_results/')
     parser.add_argument('--candidate_dir', type=str, default='./candidates/')
     parser.add_argument('--score_dir', type=str, default='./eval_scores/')
+    parser.add_argument('--proto_file', default='../../../data_processing/Matterport3DSimulator/models/ResNet-152-deploy.prototxt', type=str)
+    parser.add_argument('--caffe_model', default='../../../data_processing/Matterport3DSimulator/models/ResNet-152-model.caffemodel', type=str)
+    parser.add_argument('--bbox_pattern', default='../../../data_processing/Matterport3DSimulator/private_bbox/%s_%s.json', type=str)
+    parser.add_argument('--matterport_scan_dir', default='../../../data_processing/Matterport3DSimulator/data/v1/scans/')
+    parser.add_argument('--feat_batch_size', default=6, type=int)
 
     return parser
 
@@ -359,17 +364,7 @@ def main(args):
         args.log_filepath = os.path.join(args.val_log_dir, f'test.test_{model_name}_{args.features}_{args.setting}_{args.rate:.2f}_{args.repeat_idx}.out')
 
     # LOAD IMAGE FEATURE
-    if not args.reset_img_feat:
-        IMAGENET_FEATURES = os.path.join(args.img_dir, 'ResNet-152-imagenet.tsv')
-        PLACE365_FEATURES = os.path.join(args.img_dir, 'ResNet-152-places365.tsv')
-        
-        if args.features == 'imagenet':
-            features = IMAGENET_FEATURES
-        elif args.features == 'places365':
-            features = PLACE365_FEATURES
-    else:
-        features = os.path.join(args.img_dir, args.img_feat_pattern % (args.img_feat_mode, args.rate, args.repeat_idx))
-    args.feature_dataset = features
+    args.feature_dataset = None  # will be extracted dynamically
 
     if args.job == 'test':
         args.use_test_set = True
