@@ -43,7 +43,7 @@ We provide the processed visual features for the ablations covered in our study,
 
 ```bash
 cd Diagnose_VLN/
-python data_processing/download_data.py --download_image_features --image_fearture_dataset r2r
+python data_processing/download_data.py --download_image_features --image_fearture_dataset rxr
 ```
 
 Alternatively, you can follow the [readme](../../data_processing/Matterport3DSimulator/README.md) and run the visual features precomputing scripts in `~/Diagnose_VLN/data_processing/Matterport3DSimulator/` to generate the ablated visual features from scratch.
