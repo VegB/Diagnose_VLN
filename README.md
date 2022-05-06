@@ -7,19 +7,19 @@ We cover three VLN datasets and nine agents in our study.
 - [data_processing/](./data_processing/README.md)
   - [process_instructions/](./data_processing/process_instructions/): scripts to prepare/download instructions
   - [Matterport3DSimulator](./data_processing/Matterport3DSimulator/): a copy of Matterport simulator, and scripts to prepare/download R2R/RxR image features
-- [r2r/](./r2r): Data and code for experiments on Room-to-room (R2R) for indoor VLN
+- [r2r/](./r2r): Data and code for experiments on [Room-to-room (R2R)](https://openaccess.thecvf.com/content_cvpr_2018/papers/Anderson_Vision-and-Language_Navigation_Interpreting_CVPR_2018_paper.pdf) for indoor VLN
   - [data/](./r2r/data/)
   - [model/](./r2r/model/)
     - [R2R-EnvDrop](r2r/model/R2R-EnvDrop/)
     - [FAST](r2r/model/FAST/)
     - [Recurrent-VLN-BERT](r2r/model/Recurrent-VLN-BERT/)
     - [PREVALENT_R2R](r2r/model/PREVALENT_R2R/)
-- [rxr/](./rxr): Data and code for experiments on Room-across-room (RxR) for indoor VLN
+- [rxr/](./rxr): Data and code for experiments on [Room-across-room (RxR)](https://arxiv.org/pdf/2010.07954.pdf) for indoor VLN
   - [data/](./rxr/data/)
   - [model/](./rxr/model/)
     - [CLIP-ViL-VLN](rxr/model/CLIP-ViL-VLN/)
     - [VLN-HAMT](rxr/model/VLN-HAMT/)
-- [touchdown/](./touchdown): Data and code for experiments on Touchdown for outdoor VLN
+- [touchdown/](./touchdown): Data and code for experiments on [Touchdown](https://openaccess.thecvf.com/content_CVPR_2019/papers/Chen_TOUCHDOWN_Natural_Language_Navigation_and_Spatial_Reasoning_in_Visual_Street_CVPR_2019_paper.pdf) for outdoor VLN
   - [data/](./touchdown/data/)
   - [model/](./touchdown/model/)
     - [RCONCAT](touchdown/model/VLN-Transformer/)
