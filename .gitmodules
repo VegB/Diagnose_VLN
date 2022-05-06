@@ -1,0 +1,6 @@
+[submodule "data_processing/Matterport3DSimulator/pybind11"]
+	path = data_processing/Matterport3DSimulator/pybind11
+	url = https://github.com/pybind/pybind11.git
+[submodule "r2r/model/R2R-EnvDrop/pybind11"]
+	path = r2r/model/R2R-EnvDrop/pybind11
+	url = https://github.com/pybind/pybind11.git

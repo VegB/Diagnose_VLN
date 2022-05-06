@@ -1,83 +1,99 @@
-# Recurrent VLN-BERT
+# Environment Setup
 
-Code of the **CVPR 2021 Oral** paper:<br>
-**A Recurrent Vision-and-Language BERT for Navigation**<br>
-[**Yicong Hong**](http://www.yiconghong.me/), [Qi Wu](http://www.qi-wu.me/), [Yuankai Qi](https://sites.google.com/site/yuankiqi/home), [Cristian Rodriguez-Opazo](https://crodriguezo.github.io/), [Stephen Gould](http://users.cecs.anu.edu.au/~sgould/)<br>
-
-[[Paper & Appendices](https://arxiv.org/abs/2011.13922)] [[GitHub](https://github.com/YicongHong/Recurrent-VLN-BERT)]
-
-"*Neo : Are you saying I have to choose whether Trinity lives or dies? The Oracle : No, you've already made the choice. Now you have to understand it.*" --- [The Matrix Reloaded 2003](https://www.imdb.com/title/tt0234215/).
-
-## Prerequisites
-
-### Installation
-
-Install the [Matterport3D Simulator](https://github.com/peteanderson80/Matterport3DSimulator). Notice that this code uses the [old version (v0.1)](https://github.com/peteanderson80/Matterport3DSimulator/tree/v0.1) of the simulator, but you can easily change to the latest version which supports batches of agents and it is much more efficient.
-
-Please find the versions of packages in our environment [here](https://github.com/YicongHong/Recurrent-VLN-BERT/blob/main/recurrent-vln-bert.yml).
-
-Install the [Pytorch-Transformers](https://github.com/huggingface/transformers).
-In particular, we use [this version](https://github.com/huggingface/transformers/tree/067923d3267325f525f4e46f357360c191ba562e) (same as [OSCAR](https://github.com/microsoft/Oscar)) in our experiments.
-
-### Data Preparation
-
-Please follow the instructions below to prepare the data in directories:
-
-- MP3D navigability graphs: `connectivity`
-    - Download the [connectivity maps [23.8MB]](https://github.com/peteanderson80/Matterport3DSimulator/tree/master/connectivity).
-- R2R data: `data`
-    - Download the [R2R data [5.8MB]](https://github.com/peteanderson80/Matterport3DSimulator/tree/master/tasks/R2R/data).
-- Augmented data: `data/prevalent`
-    - Download the [collected triplets in PREVALENT [1.5GB]](https://zenodo.org/record/4437864/files/prevalent_aug.json?download=1) (pre-processed for easy use).
-- MP3D image features: `img_features`
-    - Download the [Scene features [4.2GB]](https://www.dropbox.com/s/85tpa6tc3enl5ud/ResNet-152-places365.zip?dl=1) (ResNet-152-Places365).
-
-### Initial OSCAR and PREVALENT weights
-
-Please refer to [vlnbert_init.py](https://github.com/YicongHong/Recurrent-VLN-BERT/blob/main/r2r_src/vlnbert/vlnbert_init.py) to set up the directories.
-
-- Pre-trained [OSCAR](https://github.com/microsoft/Oscar) weights
-    - Download the `base-no-labels` following [this guide](https://github.com/microsoft/Oscar/blob/master/DOWNLOAD.md).
-- Pre-trained [PREVALENT](https://github.com/weituo12321/PREVALENT) weights
-    - Download the `pytorch_model.bin` from [here](https://drive.google.com/drive/folders/1sW2xVaSaciZiQ7ViKzm_KbrLD_XvOq5y).
-
-### Trained Network Weights
-
-- Recurrent-VLN-BERT: `snap`
-    - Download the [trained network weights [2.5GB]](https://zenodo.org/record/4437864/files/snap.zip?download=1) for our OSCAR-based and PREVALENT-based models.
-
-## R2R Navigation
-
-Please read Peter Anderson's VLN paper for the [R2R Navigation task](https://arxiv.org/abs/1711.07280).
-
-### Reproduce Testing Results
-
-To replicate the performance reported in our paper, load the trained network weights and run validation:
 ```bash
-bash run/test_agent.bash
+conda create -n recurrent python=3.6
+conda activate recurrent
+conda install torchvision==0.4.0 cudatoolkit=10.0 -c pytorch
+conda install caffe-gpu
+pip install torch==1.10.0
+pip install -r ../R2R-EnvDrop/python_requirements.txt
+pip install pytorch-transformers==1.0.0
 ```
 
-You can simply switch between the OSCAR-based and the PREVALENT-based VLN models by changing the arguments `vlnbert` (oscar or prevalent) and `load` (trained model paths).
+Download the pre-trained OSCAR weights ([link](./original_README.md#initial-oscar-and-prevalent-weights)) and place it at `Oscar/`, download the pretrained Recurrent-VLN-BERT checkpoint ([link](./original_README.md#trained-network-weights)) and place it at `snap/VLNBERT-train-OriginalR2R`
 
-### Training
+## Setup Matterport
+See [R2R-EnvDrop Setup Matterport](../R2R-EnvDrop/README.md#setup-matterport).
 
-#### Navigator
 
-To train the network from scratch, simply run:
+# Commands
+
+The following commands are used in our study:
+
+
+## Default Setting
+
 ```bash
-bash run/train_agent.bash
+bash run/test_agent_default.bash
 ```
-The trained Navigator will be saved under `snap/`.
 
-## Citation
-If you use or discuss our Recurrent VLN-BERT, please cite our paper:
+
+## Instruction Ablations
+
+```bash
+# Command Format: 
+# bash [script] [cuda_device_id (default 0)] [setting] [repeat_time]
+
+# -----Object---------
+# mask
+bash run/test_agent_mask_instr.bash 0 mask_object 1
+
+# replace
+bash run/test_agent_mask_instr.bash 1 replace_object 5
+
+# controlled trial
+bash run/test_agent_mask_instr.bash 1 random_mask_for_object 5
+
+
+# ------Direction--------
+# mask
+bash run/test_agent_mask_instr.bash 1 mask_direction 1
+
+# replace
+bash run/test_agent_mask_instr.bash 2 replace_direction 5
+
+# controlled trial
+bash run/test_agent_mask_instr.bash 2 random_mask_for_direction 5
+
+
+# ------Numeric--------
+# numeric default
+bash run/test_agent_mask_instr.bash 0 numeric_default 1
+
+# mask
+bash run/test_agent_mask_instr.bash 0 mask_numeric 1
+
+# replace
+bash run/test_agent_mask_instr.bash 0 replace_numeric 5
+
+# controlled trial
+bash run/test_agent_mask_instr.bash 2 random_mask_for_numeric 5
 ```
-@InProceedings{Hong_2021_CVPR,
-    author    = {Hong, Yicong and Wu, Qi and Qi, Yuankai and Rodriguez-Opazo, Cristian and Gould, Stephen},
-    title     = {A Recurrent Vision-and-Language BERT for Navigation},
-    booktitle = {Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)},
-    month     = {June},
-    year      = {2021},
-    pages     = {1643-1653}
-}
+
+## Environment Ablations
+
+```bash
+# mask only foreground objects
+bash run/test_agent_mask_env.bash 0 foreground
+
+# mask objects except for wall/floor/ceiling
+bash run/test_agent_mask_env.bash 0 all_visible
+
+# controlled trial
+bash run/test_agent_mask_env.bash 0 foreground_controlled_trial
+
+# flip
+bash run/test_agent_mask_env.bash 0 flip
+```
+
+## Dynamic Environment Object Masking
+
+Please switch to the `dynamic` branch for the dynamic masking experiments.
+
+```bash
+# dynamically mask environment object instances mentioned in the instructions
+bash run/test_agent_dynamic_mask_env.bash 0 dynamic
+
+# controlled trial
+bash run/test_agent_dynamic_mask_env.bash 0 dynamic_controlled_trial
 ```

@@ -1,76 +1,99 @@
-# PREVALENT_R2R
-Apply PREVALENT pretrained model on R2R task. I am clearing the redundant code and classes. But you should still be able to run the code now.   
+# Environment Setup
 
-#### Requirements  
-
-OS: Ubuntu
-docker image: vlnres/mattersim:v5  
-  
-
-
-1 install docker and set nvidia-docker
-   
--  To install docker please check [here](https://docs.docker.com/engine/install/ubuntu/)
-  
-- To setup docker to use GPU run:
-`sh nvidia-container-runtime-script.sh`
-
-2 create container  
-
-- To pull the image:
-```
-docker pull vlnres/mattersim:v5
+```bash
+conda create -n prevalent python=3.6
+conda activate prevalent
+conda install torchvision==0.4.0 cudatoolkit=10.0 -c pytorch
+conda install caffe-gpu
+pip install torch==1.10.0
+pip install -r python_requirements.txt
+pip install pytorch-transformers==1.2.0 
 ```
 
-- To create the container:
-```
-docker run -it --gpus 1 --volume "your_work_directory":/root/mount/Matterport3DSimulator vlnres/mattersim:v5
-``` 
+Follow [link](./original_README.md#train-agent-for-r2r) to download checkpoints and put them at `./snap/cvpr_agent`, `./snap/speaker`, and `./pretrained_hug_models/dicadd/checkpoint-12864`.
+
+## Setup Matterport
+See [R2R-EnvDrop Setup Matterport](../R2R-EnvDrop/README.md#setup-matterport).
+
+# Commands
+
+The following commands are used in our study:
 
 
-3 Set up (for some missing dependencies)
-```
-docker start “your container id or container name”
-docker exec -it “your container id or container name”  /bin/bash     
-cd /root/mount/Matterport3DSimulator       
-pip install --user pytorch-transformers==1.2.0    
-pip install --user tensorboardX  
+## Default Setting
+
+```bash
+bash run/test_agent_default.bash
 ```
 
 
+## Instruction Ablations
 
-#### Train Agent for R2R  
-- 1 We follow the same training schedule as [here](https://github.com/airsplay/R2R-EnvDrop). You can train your own speaker and initial back translation agent. Alternatively, you can use provided [speaker](https://drive.google.com/file/d/1vOpHC6NNO5T4j0r0qu1dhEC1ComkYsxS/view?usp=sharing) and [initial agent](https://drive.google.com/file/d/12NZmDGgcoptj6tYK68ceuZnImCbRWqzB/view?usp=sharing). 
-- 2 Make sure you already put pretrained_model under `./pretrained_hug_models/dicadd`, initial agent under `./previous_btbert_agent` and trained speaker under  `snap/speaker/`
-- 3 Run the following example command (change the directory name accordingly)
-  
+```bash
+# Command Format: 
+# bash [script] [cuda_device_id (default 0)] [setting] [repeat_time]
+
+# -----Object---------
+# mask
+bash run/test_agent_mask_instr.bash 0 mask_object 1
+
+# replace
+bash run/test_agent_mask_instr.bash 0 replace_object 5
+
+# controlled trial
+bash run/test_agent_mask_instr.bash 0 random_mask_for_object 5
+
+
+# ------Direction--------
+# mask
+bash run/test_agent_mask_instr.bash 0 mask_direction 1
+
+# replace
+bash run/test_agent_mask_instr.bash 0 replace_direction 5
+
+# controlled trial
+bash run/test_agent_mask_instr.bash 0 random_mask_for_direction 5
+
+
+# ------Numeric--------
+# numeric default
+bash run/test_agent_mask_instr.bash 0 numeric_default 1
+
+# mask
+bash run/test_agent_mask_instr.bash 0 mask_numeric 1
+
+# replace
+bash run/test_agent_mask_instr.bash 0 replace_numeric 5
+
+# controlled trial
+bash run/test_agent_mask_instr.bash 0 random_mask_for_numeric 5
+```
+
+## Environment Ablations
+
+```bash
+# mask only foreground objects
+bash run/test_agent_mask_env.bash 0 foreground
+
+# mask objects except for wall/floor/ceiling
+bash run/test_agent_mask_env.bash 0 all_visible
+
+# controlled trial
+bash run/test_agent_mask_env.bash 0 foreground_controlled_trial
+
+# flip
+bash run/test_agent_mask_env.bash 0 flip
 
 ```
-CUDA_VISIBLE_DEVICES=0 python r2r_src/train.py --attn soft --train auglistener --selfTrain --aug tasks/R2R/data/aug_paths.json --speaker snap/speaker/state_dict/best_val_unseen_bleu --load previous_btbert_agent/temp/best_val_unseen --pretrain_model_name ./pretrained_hug_models/dicadd/checkpoint-12864 --angleFeatSize 128 --accumulateGrad --featdropout 0.4 --feedback sample --subout max --optim rms --lr 0.00002 --iters 100000 --maxAction 35 --encoderType Dic --batchSize 20 --include_vision True --use_dropout_vision True --d_enc_hidden_size 1024 --critic_dim 1024 --name cvpr_agent
+
+## Dynamic Environment Object Masking
+
+Please switch to the `dynamic` branch for the dynamic masking experiments.
+
+```bash
+# dynamically mask environment object instances mentioned in the instructions
+bash run/test_agent_dynamic_mask_env.bash 0 dynamic
+
+# controlled trial
+bash run/test_agent_dynamic_mask_env.bash 1 dynamic_controlled_trial
 ```
-
-
-
-You can also start fine-tuning based on previous snapshot by following command. Based on our observation, continue training on previous snapshot and reduce learning rate correspondingly would be helpful.  
-
-```
-CUDA_VISIBLE_DEVICES=0 python r2r_src/train.py --attn soft --train auglistener --selfTrain --aug tasks/R2R/data/aug_paths.json --speaker snap/speaker/state_dict/best_val_unseen_bleu --load previous_btbert_agent/temp/best_val_unseen --pretrain_model_name ./pretrained_hug_models/dicadd/checkpoint-12864 --angleFeatSize 128 --accumulateGrad --featdropout 0.4 --feedback sample --subout max --optim rms --lr 0.000002 --iters 100000 --maxAction 35 --encoderType Dic --batchSize 20 --include_vision True --use_dropout_vision True --d_enc_hidden_size 1024 --critic_dim 1024 --d_update_add_layer True --name finetune_cvpr_agent
-```
-Note: if you come with the cudnn error: CUDNN_STATUS_EXECUTION_FAILED, uninstall torchvision and reinstall torchvision=0.3.0 , eg:
-```
-conda uninstall torchvision
-conda install torchvision=0.3.0
-```
-
-#### Train Agent for NDH  
-
-```
-python tasks/NDH/ndhtrain.py --path_type player_path --history all --feedback 'sample' --encoder_type 'vlbert’ --eval_type 'val' --batch_size 5 --pretrain_model_name ./pretrained_hug_models/dicadd/checkpoint-12864 --learning_rate 0.0005 --n_iters 20000 --vl_layers 4 --la_layers 9 
-```  
-
-
-
-
-
-
-

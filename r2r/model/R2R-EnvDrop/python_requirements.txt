@@ -1,5 +1,4 @@
-torch
-torchvision
+opencv-python
 numpy
 networkX
 tensorboardX
